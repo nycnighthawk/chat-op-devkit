@@ -1,0 +1,48 @@
+[build-system]
+requires = ["hatchling>=1.21"]
+build-backend = "hatchling.build"
+
+[project]
+name = "chatop-devkit"
+version = "0.1.0"
+description = "Copy/paste harness that turns any chat LLM into a disciplined, TDD-driven software developer."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+  "fastapi>=0.110",
+  "uvicorn>=0.29",
+  "textual>=0.60",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "httpx>=0.27", "mypy>=1.10", "ruff>=0.5"]
+
+[project.scripts]
+chatop = "chatop.ui.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/chatop"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.mypy]
+strict = true
+mypy_path = "src"
+packages = ["chatop"]
+
+[[tool.mypy.overrides]]
+module = ["textual.*", "uvicorn.*"]
+ignore_missing_imports = true
+
+[tool.ruff]
+line-length = 120
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
+ignore = ["RUF001", "RUF002", "RUF003"]

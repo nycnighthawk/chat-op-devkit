@@ -1,0 +1,26 @@
+# LAB 4: AUDIT a project of unknown quality, then stabilize it (track: audit)
+# The seed claims "fully tested and production ready". It has no tests, no types, a swallowed exception,
+# and a money bug: int() on decimal price strings, so it crashes on its own data.json.
+seed legacy-inventory "initial import"
+chatop init
+expect track=audit phase=recon
+chatop next
+reply 01-recon.md
+expect phase=audit
+# SAFETY POINT: the LLM proposed a check command. Review it before anything runs on your machine.
+chatop checks
+chatop checks --accept
+chatop next
+reply 02-audit.md
+expect status=awaiting_approval
+chatop approve
+chatop next
+reply 03-plan.md
+chatop approve
+chatop next
+# C1 pins CURRENT behavior (bug included). In the audit track these tests may pass immediately.
+reply 04-characterize.md
+expect phase=slice
+reply 05-fix-money.md
+expect phase=done
+expect-file docs/AUDIT.md

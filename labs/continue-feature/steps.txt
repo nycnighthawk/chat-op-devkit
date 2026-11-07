@@ -1,0 +1,28 @@
+# LAB 2: CONTINUE, add a feature to a chatop-managed project (track: continue)
+# Prerequisite: the finished csv2md project from Lab 1 (replayed automatically below).
+run-lab new-project
+expect phase=done
+
+chatop feature "Add an --align option (left|center|right) applied to all columns; default unchanged"
+expect track=continue phase=feature
+chatop next
+reply 09-feature.md
+expect phase=refine
+chatop next
+reply 10-refine.md
+expect phase=delta
+chatop next
+reply 11-delta.md
+chatop approve
+chatop next
+reply 12-plan.md
+chatop approve
+expect phase=slice
+chatop next
+# First attempt has a bug: chatop applies it, the checks fail, and the failure is in the next packet.
+reply 13-slice-attempt1.md
+expect phase=slice
+# The fix touches code only. That's allowed because RED was already proven for this slice.
+reply 14-slice-fix.md
+expect phase=done
+chatop status

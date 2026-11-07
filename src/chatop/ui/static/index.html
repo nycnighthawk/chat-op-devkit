@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>chatop</title>
+<style>
+:root{--bg:#0f1115;--panel:#171a21;--line:#272b35;--fg:#e6e8ee;--mute:#9aa3b2;--acc:#7aa2f7;--ok:#9ece6a;--bad:#f7768e;--warn:#e0af68}
+@media (prefers-color-scheme:light){:root{--bg:#f6f7f9;--panel:#fff;--line:#e3e6ec;--fg:#1d2330;--mute:#5d6678;--acc:#2f5bd3;--ok:#2e7d32;--bad:#c62828;--warn:#a96b00}}
+*{box-sizing:border-box}body{margin:0;font:14px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;background:var(--bg);color:var(--fg)}
+header{display:flex;gap:16px;align-items:center;padding:10px 18px;border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0}
+header b{font-size:16px}.pill{padding:2px 9px;border-radius:99px;border:1px solid var(--line);color:var(--mute);font-size:12px}
+.pill.on{color:var(--acc);border-color:var(--acc)}
+main{display:grid;grid-template-columns:300px 1fr;gap:14px;padding:14px 18px;max-width:1400px;margin:auto}
+section{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:14px}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute);margin:0 0 8px}
+button{font:inherit;padding:6px 12px;border-radius:7px;border:1px solid var(--line);background:transparent;color:var(--fg);cursor:pointer}
+button.primary{background:var(--acc);border-color:var(--acc);color:#fff}button:disabled{opacity:.4;cursor:default}
+textarea,input[type=text]{width:100%;font:12.5px/1.45 ui-monospace,Menlo,monospace;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:7px;padding:8px}
+textarea{min-height:180px;resize:vertical}pre{white-space:pre-wrap;font:12px/1.45 ui-monospace,Menlo,monospace;margin:0;max-height:340px;overflow:auto}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0}.mute{color:var(--mute)}.ok{color:var(--ok)}.bad{color:var(--bad)}
+.slice{display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px dashed var(--line);font-size:13px}
+.q{border-left:3px solid var(--acc);padding:6px 10px;margin:8px 0}.q label{display:block;margin:2px 0}.rec{color:var(--acc);font-size:11px;margin-left:6px}
+#toast{position:fixed;bottom:16px;right:16px;background:var(--panel);border:1px solid var(--line);padding:10px 14px;border-radius:8px;display:none;max-width:480px}
+</style>
+</head>
+<body>
+<header><b>chatop</b><span id="proj" class="mute"></span><span id="phase" class="pill"></span><span id="st" class="pill"></span><span id="turn" class="pill"></span>
+<span style="flex:1"></span><label class="pill" title="Poll the system clipboard and auto-apply replies"><input type="checkbox" id="watch"> watch clipboard</label></header>
+<main>
+<div>
+  <section><h2>Next step</h2><div id="hint"></div>
+    <div class="row"><button class="primary" id="btnNext">Build packet + copy</button></div>
+    <div class="row" id="approveRow" style="display:none"><button class="primary" id="btnApprove">Approve</button>
+      <input type="text" id="rejectNote" placeholder="what to change"><button id="btnReject">Reject</button></div>
+    <div class="row"><button id="btnUndo">Undo last apply</button></div>
+  </section>
+  <section><h2>Slices</h2><div id="slices" class="mute">none yet</div></section>
+  <section id="checksBox"><h2>Checks</h2><pre id="checks"></pre><div class="row" id="propRow" style="display:none"><button id="btnChecks">Accept proposed checks</button></div></section>
+  <section><h2>New feature</h2><input type="text" id="featureText" placeholder="describe the feature"><div class="row"><button id="btnFeature">Start feature</button></div></section>
+  <section id="initBox" style="display:none"><h2>Initialise</h2>
+    <select id="initTrack"><option value="">auto-detect</option><option>new</option><option>adopt</option><option>audit</option></select>
+    <textarea id="initIdea" placeholder="vague idea (new projects)" style="min-height:80px"></textarea>
+    <div class="row"><button class="primary" id="btnInit">Init</button></div></section>
+</div>
+<div>
+  <section id="qBox" style="display:none"><h2>Questions from the LLM</h2><div id="questions"></div>
+    <div class="row"><button class="primary" id="btnAnswers">Submit answers</button><button id="btnAccept">Accept all recommended</button></div></section>
+  <section><h2>Reply from the LLM</h2><textarea id="reply" placeholder="Paste the whole LLM reply here (the ````chatop block)"></textarea>
+    <div class="row"><button class="primary" id="btnApply">Apply</button><button id="btnPasteApply">Paste from clipboard + apply</button></div><pre id="applyOut"></pre></section>
+  <section><h2>Packet</h2><div class="row"><button id="btnCopy">Copy again</button><span id="pmeta" class="mute"></span></div><pre id="packet" class="mute">(none yet)</pre></section>
+  <section><h2>Evidence</h2><pre id="evidence" class="mute"></pre></section>
+  <section><h2>History & decisions</h2><pre id="hist" class="mute"></pre></section>
+</div>
+</main>
+<div id="toast"></div>
+<script>
+const $=id=>document.getElementById(id);let S=null,packet="",lastSeen=null,timer=null;
+const toast=(m,bad)=>{const t=$("toast");t.textContent=m;t.style.display="block";t.style.borderColor=bad?"var(--bad)":"var(--line)";clearTimeout(t._h);t._h=setTimeout(()=>t.style.display="none",5000)};
+async function api(path,body){const r=await fetch("/api/"+path,body===undefined?{}:{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)});
+  const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.detail||r.statusText);return j}
+async function copy(t){try{await navigator.clipboard.writeText(t);return true}catch{return false}}
+async function refresh(){try{S=await api("status");$("initBox").style.display="none"}catch(e){$("initBox").style.display="block";$("hint").textContent=e.message;return}
+  $("proj").textContent=S.project;$("phase").textContent=S.track+" · "+S.phase;$("st").textContent=S.status;$("turn").textContent="turn "+S.turn;$("hint").textContent=S.hint;
+  $("approveRow").style.display=S.status==="awaiting_approval"?"flex":"none";
+  $("slices").innerHTML=S.slices.length?S.slices.map(s=>`<div class="slice"><span>${s.id} ${esc(s.title)}</span><span class="${s.status==="done"?"ok":s.status==="active"?"":"mute"}">${s.status}</span></div>`).join(""):"none yet";
+  $("checks").textContent=Object.entries(S.checks).map(([k,v])=>k+" = "+v).join("\n")||"(none)";
+  const prop=Object.entries(S.proposed_checks);$("propRow").style.display=prop.length?"flex":"none";if(prop.length)$("checks").textContent+="\n\nproposed:\n"+prop.map(([k,v])=>k+" = "+v).join("\n");
+  $("evidence").textContent=S.evidence||"(none)";$("hist").textContent=[...S.history,"",...S.decisions.map(d=>"decision: "+d)].join("\n");
+  const pend=S.questions.filter(q=>!(q.answer||q.other));$("qBox").style.display=pend.length?"block":"none";
+  $("questions").innerHTML=pend.map(q=>`<div class="q" data-id="${q.id}"><b>${q.id}</b> ${esc(q.text)} <span class="mute">(${q.multi?"pick any":"pick one"})</span>`+
+   q.options.map(o=>`<label><input type="${q.multi?"checkbox":"radio"}" name="${q.id}" value="${esc(o)}" ${q.recommended.includes(o)?"checked":""}> ${esc(o)}${q.recommended.includes(o)?'<span class="rec">recommended</span>':""}</label>`).join("")+
+   `<input type="text" placeholder="other (free text)" data-other="${q.id}"></div>`).join("")}
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+function showPacket(p){packet=p.text;$("packet").textContent=p.text;$("pmeta").textContent=`turn ${p.turn} · ~${p.tokens.toLocaleString()} tokens`+(p.notes.length?" · "+p.notes.join("; "):"")}
+async function next(){try{const p=await api("next",{});showPacket(p);toast(await copy(p.text)||p.copied?"Packet copied. Paste it into your chat.":"Packet ready; copy it from the panel.")}catch(e){toast(e.message,true)}refresh()}
+function showApply(r){$("applyOut").innerHTML=r.ok?[...r.changes,...(r.red_ok===null?[]:["TDD red: "+(r.red_ok?"proven":"NOT proven")]),...r.checks.map(c=>`check ${c.name}: ${c.code===0?"PASS":"FAIL"}`),...r.messages].map(esc).join("\n"):
+  '<span class="bad">REJECTED (nothing changed):\n'+r.errors.map(esc).join("\n")+"</span>\nA repair prompt is ready; it was copied for you.";
+  if(!r.ok&&r.repair_prompt)copy(r.repair_prompt);if(r.next_packet){showPacket(r.next_packet);copy(r.next_packet.text);toast("Applied. The next packet is on your clipboard.")}else toast(r.ok?"Applied: "+r.status:"Rejected; repair prompt copied",!r.ok)}
+async function apply(text){try{showApply(await api("apply",{text}));$("reply").value=""}catch(e){toast(e.message,true)}refresh()}
+$("btnNext").onclick=next;$("btnCopy").onclick=async()=>toast(await copy(packet)?"copied":"copy failed",false);
+$("btnApply").onclick=()=>apply($("reply").value);
+$("btnPasteApply").onclick=async()=>{try{apply(await navigator.clipboard.readText())}catch{toast("Browser blocked clipboard read; paste into the box instead",true)}};
+$("btnApprove").onclick=async()=>{try{await api("approve",{note:""});await next()}catch(e){toast(e.message,true)}};
+$("btnReject").onclick=async()=>{try{await api("reject",{note:$("rejectNote").value});await next()}catch(e){toast(e.message,true)}};
+$("btnUndo").onclick=async()=>{try{const r=await api("undo",{});toast("restored "+r.restored.join(", "))}catch(e){toast(e.message,true)}refresh()};
+$("btnChecks").onclick=async()=>{await api("checks/accept",{});refresh()};
+$("btnFeature").onclick=async()=>{try{await api("feature",{text:$("featureText").value});await next()}catch(e){toast(e.message,true)}};
+$("btnInit").onclick=async()=>{try{await api("init",{track:$("initTrack").value||null,idea:$("initIdea").value});await refresh()}catch(e){toast(e.message,true)}};
+$("btnAccept").onclick=async()=>{await api("accept",{});await next()};
+$("btnAnswers").onclick=async()=>{try{for(const d of document.querySelectorAll(".q")){const id=d.dataset.id;
+  const choices=[...d.querySelectorAll("input:checked")].map(i=>i.value);const other=d.querySelector("[data-other]").value;await api("answer",{qid:id,choices,other})}await next()}catch(e){toast(e.message,true)}};
+$("watch").onchange=e=>{clearInterval(timer);$("watch").parentElement.classList.toggle("on",e.target.checked);if(e.target.checked)timer=setInterval(async()=>{try{const r=await api("watch",{last_seen:lastSeen});
+  lastSeen=r.last_seen;if(r.result){showApply(r.result);refresh()}}catch(e){toast(e.message,true)}},1500)};
+refresh();
+</script>
+</body>
+</html>

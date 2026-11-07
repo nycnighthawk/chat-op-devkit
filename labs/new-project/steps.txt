@@ -1,0 +1,39 @@
+# LAB 1: NEW PROJECT, from a vague idea to shipped slices (track: new)
+# With a real LLM: run each `chatop` line yourself. Where a line says `reply X`, paste the packet into
+# your chat, copy the LLM's reply, and run `chatop apply` (or keep `chatop watch` running).
+# The files in replies/ are reference answers that show what a good reply looks like.
+
+chatop init --track new --idea "Small CLI that turns CSV files into Markdown tables for READMEs"
+expect track=new phase=idea
+chatop next
+reply 01-idea.md
+expect phase=refine status=awaiting_answers
+# Human: review the questions; accept the recommended answers (or: chatop answer q1 ...)
+chatop accept
+chatop next
+reply 02-refine.md
+expect phase=prd
+chatop next
+reply 03-prd.md
+expect phase=prd status=awaiting_approval
+# Human gate: read docs/PRD.md, then approve (or: chatop reject "add X")
+chatop approve
+chatop next
+reply 04-spec.md
+expect phase=spec status=awaiting_approval
+# Approving the SPEC also accepts the check commands the LLM proposed (shown by chatop checks)
+chatop checks
+chatop approve
+chatop next
+reply 05-plan.md
+chatop approve
+expect phase=slice
+chatop next
+reply 06-s0-skeleton.md
+chatop next
+reply 07-s1-convert.md
+chatop next
+reply 08-s2-cli.md
+expect phase=done status=done
+expect-file src/csv2md/cli.py
+chatop status
