@@ -1,0 +1,28 @@
+# LAB 3: ADOPT an unknown, agent-built project, then add a feature (tracks: adopt → continue)
+# The seed was "written by a coding agent": AGENTS.md, a Co-Authored-By trailer, and passing tests.
+seed agentic-todo "feat: todo store\n\nCo-Authored-By: Claude <noreply@anthropic.com>"
+# No --track: chatop detects code + tests + a test command, so it picks 'adopt'
+chatop init
+expect track=adopt phase=recon
+chatop next
+reply 01-recon.md
+expect phase=done
+chatop feature "Todos can have a due date; list the overdue open items"
+chatop next
+# The LLM asks a question AND requests a file. Both are served together on the next turn.
+reply 02-feature.md
+expect phase=feature status=awaiting_answers
+chatop accept
+chatop next
+reply 03-feature-final.md
+expect phase=refine
+reply 04-refine.md
+expect phase=delta
+reply 05-delta.md
+chatop approve
+chatop next
+reply 06-plan.md
+chatop approve
+chatop next
+reply 07-slice.md
+expect phase=done
