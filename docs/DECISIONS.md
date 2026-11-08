@@ -79,3 +79,70 @@ Each entry: context → decision → alternatives → consequences.
 * **Decision.** Approvals happen at the documents that fix scope or architecture. Slices auto-advance on green checks
   and auto-commit.
 * **Consequences.** `gates` in config can add or remove gates per team taste.
+
+## ADR-013: Parallel relay is opt-in; serial stays the default
+* **Context.** The human is idle while a chat writes. Several chats can work at once if the plan allows it.
+* **Decision.** `max_parallel` (default 1). At 1, nothing changes. Above 1, an approved plan is turned into issues and
+  dispatched to chats. Serial and parallel share the apply pipeline (`_stage`, `judge_slice`), so TDD rules are identical.
+* **Alternatives.** Parallel only (rewrites every flow and lab); a second app mode (two code paths to maintain).
+* **Consequences.** A project can switch at any time (`chatop config --set max_parallel 3`); a running serial issue
+  is adopted as a chat. Parallel needs `auto_commit` because a commit is what ends an issue.
+
+## ADR-014: Replies carry their chat id; paste routing is by header
+* **Context.** With several chats, "which chat did this come from?" must not be a human decision.
+* **Decision.** The header is `<<<CHATOP chat=c2 turn=3>>>`. The contract tells the model to copy it verbatim. A
+  headerless reply routes only when exactly one chat is waiting (or one matches the turn). Unknown chats and stale
+  turns are rejected with a repair prompt.
+* **Consequences.** Replies can arrive in any order; a packet pasted into the wrong tab still produces a correctly
+  routed reply. Cost: one more attribute for the model to echo; the repair path covers the rare omission.
+
+## ADR-015: Continuing chats get deltas, tracked by content digests
+* **Context.** Resending SPEC, PRD and unchanged files every turn wastes tokens and reading time, and the chat
+  already has them.
+* **Decision.** Each chat records a digest per context item (`doc:`, `file:`, `symbol:`, `repomap`, `task:`). A
+  packet contains only items whose digest changed, plus one line naming the rest. "Copy full" or `reset-chat`
+  clears the record for fresh tabs. A chat is reused for the next issue only if it already holds one of that issue's
+  files; otherwise a fresh chat avoids carrying unrelated context.
+* **Alternatives.** Always full packets (simple, costly); reuse any free chat (cheaper bootstrap, but long unrelated
+  history degrades output, so `max_issues_per_chat` caps it anyway).
+* **Consequences.** In Lab 5 a continuing chat's packet is about a fifth of a full one. A chat that silently lost
+  its history is the failure mode; the recovery is one button.
+
+## ADR-016: One-shot preflight over all generated files
+* **Context.** A syntax error in one of five generated files used to cost a whole round trip, once per file.
+* **Decision.** Before anything runs, every changed file is checked together: Python (`ast`), JSON and TOML are
+  built in and pure; project linters are configured per glob in `[preflight]` and run once over all matching files
+  (`{files}`), with the files restored on failure. All diagnostics are merged with edit mismatches into one repair prompt.
+* **Consequences.** One rejection instead of several. External linters only run on files that parse, so a linter's
+  confusing output on broken syntax is avoided; its output is parsed best-effort (`path:line:col: message`).
+
+## ADR-017: Lane isolation through overlays and serialised applies, not worktrees
+* **Context.** Two chats' half-finished code must not break each other's checks.
+* **Decision.** Each chat's uncommitted files are an overlay in `.chatop/lanes/`. An apply materialises that
+  chat's overlay in the shared tree, runs the checks, then commits (green) or restores the tree (red). Applies are
+  serialised. Overlay entries record their base so a file committed by another chat is detected as a conflict.
+* **Alternatives.** One git worktree per chat (true isolation, but dependency installs and tool state per tree, and
+  merges to resolve); no isolation (one chat's red tests block everyone).
+* **Consequences.** Cheap and simple; apply time is serial (seconds) while LLM time (minutes) overlaps. `undo`
+  is disabled once chats exist (use `git revert`).
+
+## ADR-018: Scheduling by `depends` and `touches`
+* **Context.** Parallelism is only safe when issues are independent.
+* **Decision.** An issue is ready when its `depends` are done. Issues with overlapping `touches` (equal path or
+  parent directory; empty means "unknown, assume overlap") never run together. The PLAN prompt asks the model for
+  both, chatop rejects cycles, and warns when the plan is wider than `max_parallel`.
+* **Consequences.** Imprecise `touches` reduce parallelism rather than cause conflicts; conflicts that still happen
+  are caught at apply time.
+
+## ADR-019: The clipboard is a human resource
+* **Context.** Auto-copying the next packet is great in serial work and harmful when you are holding a reply.
+* **Decision.** Packets are copied on request. After an apply, chatop copies the next packet automatically only if no
+  other chat is waiting for a reply or being applied; otherwise it shows a "next up" button and the board hint.
+* **Consequences.** No clobbered clipboards. With `watch`, replies are consumed from the clipboard and routed.
+
+## ADR-020: The mock UI is the real page on a fake backend
+* **Context.** People should be able to try the workflow without installing anything, and a hand-drawn mock drifts.
+* **Decision.** The web page talks to the server only through `window.CHATOP_API`. `docs/chatop-mock-ui.html` embeds
+  that exact page, an in-browser backend that mirrors the lane rules (tested with node against the same scenario as
+  Lab 5) and scripted chat tabs. It is rebuilt from sources and checked for drift in the test suite.
+* **Consequences.** The mock shows true UI behavior; the build, tests and LLM in it are scripted, which it says so.

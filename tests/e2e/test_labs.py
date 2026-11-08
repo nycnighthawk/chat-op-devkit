@@ -19,7 +19,7 @@ def _runner():  # type: ignore[no-untyped-def]
     return mod
 
 
-@pytest.mark.parametrize("lab", ["new-project", "continue-feature", "adopt", "audit"])
+@pytest.mark.parametrize("lab", ["new-project", "continue-feature", "adopt", "audit", "parallel-relay"])
 def test_lab_replays(lab: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PATH", str(Path(sys.executable).parent) + ":" + __import__("os").environ["PATH"])
     _runner().run(lab, tmp_path / lab, verbose=False)

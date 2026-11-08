@@ -66,12 +66,54 @@ class Slice:
     status: SliceStatus = "todo"
     attempts: int = 0
     red_proven: bool = False  # a failing test for this slice has been observed (TDD red)
+    depends: list[str] = field(default_factory=list)  # issue ids that must be done first
+    lane: str | None = None  # chat currently working on this issue (parallel mode)
 
 
 @dataclass
 class Need:
     kind: NeedKind
     target: str
+
+
+class ChatStatus(StrEnum):
+    """A chat window the human relays to. READY = the last reply was applied and the next packet can be copied."""
+
+    QUEUED = "queued"  # issue assigned, first (full) packet not sent yet
+    READY = "ready"  # reply applied; next packet is ready to copy
+    AWAITING_REPLY = "awaiting_reply"  # packet handed out; the LLM is working
+    APPLYING = "applying"  # reply received; chatop is applying and running checks
+    NEEDS_INPUT = "needs_input"  # the LLM asked the human questions
+    BLOCKED = "blocked"  # attempts exhausted: human decision needed
+    DONE = "done"  # issue finished; the chat is free and keeps its context
+
+
+SENDABLE = (ChatStatus.QUEUED, ChatStatus.READY)
+
+
+@dataclass
+class Chat:
+    id: str
+    title: str = ""
+    issue: str | None = None
+    status: ChatStatus = ChatStatus.QUEUED
+    turn: int = 0
+    seen: dict[str, str] = field(default_factory=dict)  # context key -> content digest this chat already holds
+    needs: list[Need] = field(default_factory=list)
+    questions: list[Question] = field(default_factory=list)
+    evidence: str = ""
+    note: str = ""
+    decisions_sent: int = 0
+    issues_done: list[str] = field(default_factory=list)
+    last_summary: str = ""
+    last_result: list[str] = field(default_factory=list)
+    tokens_sent: int = 0  # what was actually sent to this chat
+    tokens_full: int = 0  # what full packets would have cost
+    force_full: bool = False  # next packet must carry the full context (new browser tab, lost history)
+    packet_kind: str = ""  # kind of the packet currently handed out ("full" | "delta")
+    packet_full_tokens: int = 0
+    repair: str = ""  # repair prompt for the last rejected reply, until the chat's next successful apply
+    updated: str = ""
 
 
 @dataclass
@@ -91,6 +133,12 @@ class State:
     history: list[str] = field(default_factory=list)
     refine_round: int = 0
     feature: str = ""
+    chats: list[Chat] = field(default_factory=list)
+    events: list[dict[str, Any]] = field(default_factory=list)
+    event_seq: int = 0
+
+    def chat(self, chat_id: str | None) -> Chat | None:
+        return next((c for c in self.chats if c.id == chat_id), None)
 
     def slice(self, slice_id: str | None) -> Slice | None:
         return next((s for s in self.slices if s.id == slice_id), None)
@@ -116,4 +164,15 @@ class State:
             history=list(d.get("history", [])),
             refine_round=int(d.get("refine_round", 0)),
             feature=d.get("feature", ""),
+            chats=[_chat_from_dict(c) for c in d.get("chats", [])],
+            events=list(d.get("events", [])),
+            event_seq=int(d.get("event_seq", 0)),
         )
+
+
+def _chat_from_dict(d: dict[str, Any]) -> Chat:
+    d = dict(d)
+    d["status"] = ChatStatus(d.get("status", "queued"))
+    d["needs"] = [Need(**n) for n in d.get("needs", [])]
+    d["questions"] = [Question(**q) for q in d.get("questions", [])]
+    return Chat(**d)

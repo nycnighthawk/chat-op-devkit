@@ -5,36 +5,56 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>chatop</title>
 <style>
-:root{--bg:#0f1115;--panel:#171a21;--line:#272b35;--fg:#e6e8ee;--mute:#9aa3b2;--acc:#7aa2f7;--ok:#9ece6a;--bad:#f7768e;--warn:#e0af68}
-@media (prefers-color-scheme:light){:root{--bg:#f6f7f9;--panel:#fff;--line:#e3e6ec;--fg:#1d2330;--mute:#5d6678;--acc:#2f5bd3;--ok:#2e7d32;--bad:#c62828;--warn:#a96b00}}
+:root{--bg:#0f1115;--panel:#171a21;--line:#272b35;--fg:#e6e8ee;--mute:#9aa3b2;--acc:#7aa2f7;--ok:#9ece6a;--bad:#f7768e;--warn:#e0af68;--ask:#bb9af7}
+@media (prefers-color-scheme:light){:root{--bg:#f6f7f9;--panel:#fff;--line:#e3e6ec;--fg:#1d2330;--mute:#5d6678;--acc:#2f5bd3;--ok:#2e7d32;--bad:#c62828;--warn:#a96b00;--ask:#7b3fc4}}
 *{box-sizing:border-box}body{margin:0;font:14px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;background:var(--bg);color:var(--fg)}
-header{display:flex;gap:16px;align-items:center;padding:10px 18px;border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0}
+header{display:flex;gap:12px;align-items:center;padding:10px 18px;border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:5;flex-wrap:wrap}
 header b{font-size:16px}.pill{padding:2px 9px;border-radius:99px;border:1px solid var(--line);color:var(--mute);font-size:12px}
-.pill.on{color:var(--acc);border-color:var(--acc)}
-main{display:grid;grid-template-columns:300px 1fr;gap:14px;padding:14px 18px;max-width:1400px;margin:auto}
+.pill.on{color:var(--acc);border-color:var(--acc)}.pill.hot{color:var(--ok);border-color:var(--ok)}
+main{display:grid;grid-template-columns:300px 1fr;gap:14px;padding:14px 18px;max-width:1500px;margin:auto}
+@media (max-width:900px){main{grid-template-columns:1fr}}
 section{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:14px}
 h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute);margin:0 0 8px}
 button{font:inherit;padding:6px 12px;border-radius:7px;border:1px solid var(--line);background:transparent;color:var(--fg);cursor:pointer}
-button.primary{background:var(--acc);border-color:var(--acc);color:#fff}button:disabled{opacity:.4;cursor:default}
-textarea,input[type=text]{width:100%;font:12.5px/1.45 ui-monospace,Menlo,monospace;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:7px;padding:8px}
+button.primary{background:var(--acc);border-color:var(--acc);color:#fff}button:disabled{opacity:.4;cursor:default}button.sm{padding:3px 9px;font-size:12px}
+textarea,input[type=text],select{width:100%;font:12.5px/1.45 ui-monospace,Menlo,monospace;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:7px;padding:8px}
 textarea{min-height:180px;resize:vertical}pre{white-space:pre-wrap;font:12px/1.45 ui-monospace,Menlo,monospace;margin:0;max-height:340px;overflow:auto}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0}.mute{color:var(--mute)}.ok{color:var(--ok)}.bad{color:var(--bad)}
 .slice{display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px dashed var(--line);font-size:13px}
 .q{border-left:3px solid var(--acc);padding:6px 10px;margin:8px 0}.q label{display:block;margin:2px 0}.rec{color:var(--acc);font-size:11px;margin-left:6px}
-#toast{position:fixed;bottom:16px;right:16px;background:var(--panel);border:1px solid var(--line);padding:10px 14px;border-radius:8px;display:none;max-width:480px}
+#toast{position:fixed;bottom:16px;right:16px;background:var(--panel);border:1px solid var(--line);padding:10px 14px;border-radius:8px;display:none;max-width:480px;z-index:9}
+/* relay board */
+.relay{display:flex;gap:14px;flex-wrap:wrap;align-items:stretch}.relay>div{flex:1 1 320px}
+#pasteAny{min-height:74px;border-style:dashed}
+#pasteAny.hot{border-color:var(--acc)}
+.chats{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+.chat{--c:var(--mute);border:1px solid var(--line);border-top:3px solid var(--c);border-radius:9px;padding:10px 12px;background:var(--bg);display:flex;flex-direction:column;gap:6px}
+.chat.s-queued,.chat.s-ready{--c:var(--ok)}.chat.s-awaiting_reply{--c:var(--warn)}.chat.s-applying{--c:var(--acc)}
+.chat.s-needs_input{--c:var(--ask)}.chat.s-blocked{--c:var(--bad)}.chat.s-done{--c:var(--mute);opacity:.75}
+.chat .ch{display:flex;justify-content:space-between;align-items:center}.badge{font-size:11px;color:var(--c);border:1px solid var(--c);border-radius:99px;padding:0 8px}
+.chat .ct{font-weight:600}.chat .cm{font-size:12px;color:var(--mute)}
+.spin{display:inline-block;width:9px;height:9px;border:2px solid var(--acc);border-right-color:transparent;border-radius:50%;animation:sp .8s linear infinite;margin-right:5px;vertical-align:-1px}
+@keyframes sp{to{transform:rotate(360deg)}}
+table{border-collapse:collapse;width:100%;font-size:13px}td,th{text-align:left;padding:3px 8px;border-bottom:1px dashed var(--line)}th{color:var(--mute);font-weight:500}
+.ev{font-size:12.5px;padding:2px 0}.ev i{color:var(--mute);font-style:normal;margin-right:8px}.ev.k-ready b{color:var(--ok)}.ev.k-blocked b,.ev.k-rejected b{color:var(--bad)}.ev.k-question b{color:var(--ask)}.ev.k-done b,.ev.k-finished b{color:var(--acc)}
+.bar{height:6px;background:var(--line);border-radius:4px;overflow:hidden}.bar>i{display:block;height:100%;background:var(--ok)}
 </style>
 </head>
 <body>
 <header><b>chatop</b><span id="proj" class="mute"></span><span id="phase" class="pill"></span><span id="st" class="pill"></span><span id="turn" class="pill"></span>
-<span style="flex:1"></span><label class="pill" title="Poll the system clipboard and auto-apply replies"><input type="checkbox" id="watch"> watch clipboard</label></header>
+<span id="modePill" class="pill" style="display:none"></span><span id="readyPill" class="pill" style="display:none"></span><span id="savedPill" class="pill" style="display:none"></span>
+<span style="flex:1"></span><label class="pill" title="Desktop notifications when a chat is ready"><input type="checkbox" id="notify"> notify</label>
+<label class="pill" title="Poll the system clipboard and auto-apply replies"><input type="checkbox" id="watch"> watch clipboard</label></header>
 <main>
 <div>
-  <section><h2>Next step</h2><div id="hint"></div>
+  <section id="serialStep"><h2>Next step</h2><div id="hint"></div>
     <div class="row"><button class="primary" id="btnNext">Build packet + copy</button></div>
     <div class="row" id="approveRow" style="display:none"><button class="primary" id="btnApprove">Approve</button>
       <input type="text" id="rejectNote" placeholder="what to change"><button id="btnReject">Reject</button></div>
     <div class="row"><button id="btnUndo">Undo last apply</button></div>
   </section>
+  <section><h2>Parallel chats</h2><div class="mute" style="font-size:12px">How many chat windows you relay between at once. 1 = classic serial flow.</div>
+    <div class="row"><select id="parSel" style="width:auto"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option></select><button id="btnPar">Apply</button></div></section>
   <section><h2>Slices</h2><div id="slices" class="mute">none yet</div></section>
   <section id="checksBox"><h2>Checks</h2><pre id="checks"></pre><div class="row" id="propRow" style="display:none"><button id="btnChecks">Accept proposed checks</button></div></section>
   <section><h2>New feature</h2><input type="text" id="featureText" placeholder="describe the feature"><div class="row"><button id="btnFeature">Start feature</button></div></section>
@@ -44,9 +64,20 @@ textarea{min-height:180px;resize:vertical}pre{white-space:pre-wrap;font:12px/1.4
     <div class="row"><button class="primary" id="btnInit">Init</button></div></section>
 </div>
 <div>
+  <section id="relay" style="display:none"><h2>Relay</h2>
+    <div class="relay">
+      <div><div id="relayHint" style="margin-bottom:8px"></div>
+        <div class="row"><button class="primary" id="btnNextUp">Copy next packet</button><button id="btnDispatch" title="Hand newly unblocked issues to chats">Dispatch issues</button></div>
+        <div class="mute" id="tokens" style="font-size:12px"></div><div class="bar" style="margin-top:4px"><i id="tokbar" style="width:0"></i></div></div>
+      <div><textarea id="pasteAny" placeholder="Paste ANY chat reply here (any order). chatop reads the header, routes it to its chat and applies it in the background."></textarea>
+        <div class="row"><button id="btnPasteClip">Paste from clipboard + route</button><span class="mute" id="pasteOut" style="font-size:12px"></span></div></div>
+    </div></section>
+  <section id="lanes" style="display:none"><h2>Chats</h2><div class="chats" id="chats"></div></section>
+  <section id="issuesBox" style="display:none"><h2>Issues</h2><table id="issues"></table></section>
+  <section id="eventsBox" style="display:none"><h2>Events</h2><div id="events"></div></section>
   <section id="qBox" style="display:none"><h2>Questions from the LLM</h2><div id="questions"></div>
     <div class="row"><button class="primary" id="btnAnswers">Submit answers</button><button id="btnAccept">Accept all recommended</button></div></section>
-  <section><h2>Reply from the LLM</h2><textarea id="reply" placeholder="Paste the whole LLM reply here (the ````chatop block)"></textarea>
+  <section id="replyBox"><h2>Reply from the LLM</h2><textarea id="reply" placeholder="Paste the whole LLM reply here (the ````chatop block)"></textarea>
     <div class="row"><button class="primary" id="btnApply">Apply</button><button id="btnPasteApply">Paste from clipboard + apply</button></div><pre id="applyOut"></pre></section>
   <section><h2>Packet</h2><div class="row"><button id="btnCopy">Copy again</button><span id="pmeta" class="mute"></span></div><pre id="packet" class="mute">(none yet)</pre></section>
   <section><h2>Evidence</h2><pre id="evidence" class="mute"></pre></section>
@@ -55,44 +86,111 @@ textarea{min-height:180px;resize:vertical}pre{white-space:pre-wrap;font:12px/1.4
 </main>
 <div id="toast"></div>
 <script>
-const $=id=>document.getElementById(id);let S=null,packet="",lastSeen=null,timer=null;
+const $=id=>document.getElementById(id);let S=null,B=null,packet="",lastSeen=null,timer=null,seq=null,busy=false;
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+/* polling must not wipe a form the human is filling in: only touch the DOM when the markup changed and nobody is typing in it */
+function setHtml(el,html){if(el._h===html)return;if(el.contains(document.activeElement)&&/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName))return;el._h=html;el.innerHTML=html}
+const kt=n=>n>=1000?(n/1000).toFixed(1)+"k":String(n);
 const toast=(m,bad)=>{const t=$("toast");t.textContent=m;t.style.display="block";t.style.borderColor=bad?"var(--bad)":"var(--line)";clearTimeout(t._h);t._h=setTimeout(()=>t.style.display="none",5000)};
-async function api(path,body){const r=await fetch("/api/"+path,body===undefined?{}:{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)});
+/* All server calls go through ONE seam so the page can run against a different backend (see docs/chatop-mock-ui.html). */
+async function api(path,body){
+  if(window.CHATOP_API)return window.CHATOP_API(path,body);
+  const r=await fetch("/api/"+path,body===undefined?{}:{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)});
   const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.detail||r.statusText);return j}
-async function copy(t){try{await navigator.clipboard.writeText(t);return true}catch{return false}}
-async function refresh(){try{S=await api("status");$("initBox").style.display="none"}catch(e){$("initBox").style.display="block";$("hint").textContent=e.message;return}
+async function copy(t){try{if(window.CHATOP_HOOKS&&window.CHATOP_HOOKS.copied)window.CHATOP_HOOKS.copied(t);await navigator.clipboard.writeText(t);return true}catch{return false}}
+const BADGE={queued:"ready to send",ready:"ready to send",awaiting_reply:"waiting for the LLM",applying:"applying…",needs_input:"needs your answer",blocked:"blocked",done:"free"};
+async function refresh(){
+  try{S=await api("status");$("initBox").style.display="none"}catch(e){$("initBox").style.display="block";$("hint").textContent=e.message;return}
   $("proj").textContent=S.project;$("phase").textContent=S.track+" · "+S.phase;$("st").textContent=S.status;$("turn").textContent="turn "+S.turn;$("hint").textContent=S.hint;
-  $("approveRow").style.display=S.status==="awaiting_approval"?"flex":"none";
-  $("slices").innerHTML=S.slices.length?S.slices.map(s=>`<div class="slice"><span>${s.id} ${esc(s.title)}</span><span class="${s.status==="done"?"ok":s.status==="active"?"":"mute"}">${s.status}</span></div>`).join(""):"none yet";
+  $("approveRow").style.display=S.status==="awaiting_approval"?"flex":"none";$("parSel").value=String(S.max_parallel||1);
+  setHtml($("slices"),S.slices.length?S.slices.map(s=>`<div class="slice"><span>${esc(s.id)} ${esc(s.title)}</span><span class="${s.status==="done"?"ok":s.status==="active"?"":"mute"}">${s.status}</span></div>`).join(""):"none yet");
   $("checks").textContent=Object.entries(S.checks).map(([k,v])=>k+" = "+v).join("\n")||"(none)";
   const prop=Object.entries(S.proposed_checks);$("propRow").style.display=prop.length?"flex":"none";if(prop.length)$("checks").textContent+="\n\nproposed:\n"+prop.map(([k,v])=>k+" = "+v).join("\n");
   $("evidence").textContent=S.evidence||"(none)";$("hist").textContent=[...S.history,"",...S.decisions.map(d=>"decision: "+d)].join("\n");
+  const par=S.mode==="parallel"&&S.chats.length>0;
+  ["relay","lanes","issuesBox","eventsBox"].forEach(i=>$(i).style.display=par?"block":"none");
+  $("serialStep").style.display=par?"none":"block";$("replyBox").style.display=par?"none":"block";
+  $("modePill").style.display=par?"inline":"none";$("modePill").textContent="parallel · "+S.max_parallel;
+  if(par){await loadBoard()}else{$("readyPill").style.display=$("savedPill").style.display="none";document.title="chatop";renderSerialQuestions()}
+}
+function renderSerialQuestions(){
   const pend=S.questions.filter(q=>!(q.answer||q.other));$("qBox").style.display=pend.length?"block":"none";
-  $("questions").innerHTML=pend.map(q=>`<div class="q" data-id="${q.id}"><b>${q.id}</b> ${esc(q.text)} <span class="mute">(${q.multi?"pick any":"pick one"})</span>`+
-   q.options.map(o=>`<label><input type="${q.multi?"checkbox":"radio"}" name="${q.id}" value="${esc(o)}" ${q.recommended.includes(o)?"checked":""}> ${esc(o)}${q.recommended.includes(o)?'<span class="rec">recommended</span>':""}</label>`).join("")+
-   `<input type="text" placeholder="other (free text)" data-other="${q.id}"></div>`).join("")}
-const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-function showPacket(p){packet=p.text;$("packet").textContent=p.text;$("pmeta").textContent=`turn ${p.turn} · ~${p.tokens.toLocaleString()} tokens`+(p.notes.length?" · "+p.notes.join("; "):"")}
+  setHtml($("questions"),pend.map(q=>qHtml(q,"")).join(""))}
+function qHtml(q,chat){return `<div class="q" data-id="${esc(q.id)}" data-chat="${esc(chat)}"><b>${esc(q.id)}</b> ${esc(q.text)} <span class="mute">(${q.multi?"pick any":"pick one"})</span>`+
+  q.options.map(o=>`<label><input type="${q.multi?"checkbox":"radio"}" name="${esc(chat+q.id)}" value="${esc(o)}" ${q.recommended.includes(o)?"checked":""}> ${esc(o)}${q.recommended.includes(o)?'<span class="rec">recommended</span>':""}</label>`).join("")+
+  `<input type="text" placeholder="other (free text)" data-other="1"></div>`}
+async function loadBoard(){
+  try{B=await api("board")}catch(e){return}
+  const running=new Set((B.jobs||[]).filter(j=>j.status==="running").map(j=>j.chat));
+  const ready=B.chats.filter(c=>c.can_send).length;
+  $("readyPill").style.display="inline";$("readyPill").className="pill"+(ready?" hot":"");$("readyPill").textContent=ready+" ready to send";
+  document.title=(ready?`(${ready}) `:"")+"chatop";
+  const t=B.tokens;$("savedPill").style.display=t.full?"inline":"none";$("savedPill").textContent="deltas saved "+kt(t.saved)+" tok";
+  $("tokens").textContent=t.full?`sent ~${kt(t.sent)} tokens; full packets would have been ~${kt(t.full)} (${Math.round(100*t.saved/t.full)}% saved)`:"";$("tokbar").style.width=t.full?Math.round(100*t.saved/t.full)+"%":"0";
+  $("relayHint").textContent=B.hint;
+  const nu=B.next_up;$("btnNextUp").disabled=!nu;$("btnNextUp").textContent=nu?`Copy packet for ${nu.chat} (${nu.kind})`:"Copy next packet";
+  setHtml($("chats"),B.chats.map(c=>{const st=running.has(c.id)?"applying":c.status;
+    const fail=c.evidence&&c.status==="ready"?`<details><summary class="bad" style="cursor:pointer;font-size:12px">failing checks</summary><pre>${esc(c.evidence)}</pre></details>`:"";
+    const qs=c.questions.length?c.questions.map(q=>qHtml(q,c.id)).join("")+`<div class="row"><button class="sm primary" data-act="answer" data-chat="${c.id}">Submit</button><button class="sm" data-act="accept" data-chat="${c.id}">Use recommended</button></div>`:"";
+    return `<div class="chat s-${st}" data-chat="${c.id}"><div class="ch"><b>${esc(c.id)}</b><span class="badge">${st==="applying"?'<span class="spin"></span>':""}${BADGE[st]}</span></div>
+      <div class="ct">${esc(c.title||"(no issue)")}</div>
+      <div class="cm">turn ${c.turn}${c.can_send?" · next packet: "+c.kind:""} · sent ${kt(c.tokens_sent)} / full ${kt(c.tokens_full)} tok${c.attempts>1?" · attempt "+c.attempts:""}</div>
+      ${c.last_summary?`<div class="cm">“${esc(c.last_summary)}”</div>`:""}${c.last_result.length?`<div class="cm">${esc(c.last_result.slice(-4).join(" · "))}</div>`:""}${c.repair?'<div class="cm bad">last reply was rejected: nothing changed</div>':""}${fail}${qs}
+      <div class="row" style="margin:2px 0 0">${c.repair?`<button class="sm primary" data-act="repair" data-chat="${c.id}" title="the last reply was rejected; paste this into the same chat">Copy repair prompt</button>`:""}${c.can_send?`<button class="sm primary" data-act="packet" data-chat="${c.id}">Copy packet</button>`:""}
+      <button class="sm" data-act="full" data-chat="${c.id}" title="fresh browser tab: resend everything">Copy full</button>
+      <button class="sm" data-act="reset" data-chat="${c.id}" title="${c.status==="blocked"?"unblock after you decided":"forget what this chat has seen"}">${c.status==="blocked"?"Unblock":"Reset"}</button></div></div>`}).join(""));
+  setHtml($("issues"),"<tr><th>id</th><th>issue</th><th>status</th><th>chat</th><th>waits for</th></tr>"+B.issues.map(i=>`<tr><td>${esc(i.id)}</td><td>${esc(i.title)}</td><td class="${i.status==="done"?"ok":i.status==="blocked"?"bad":""}">${i.status}</td><td>${i.chat||""}</td><td class="mute">${i.status==="todo"?esc(i.waiting_on.join(", ")):""}</td></tr>`).join(""));
+  setHtml($("events"),[...B.events].reverse().slice(0,14).map(e=>`<div class="ev k-${e.kind}"><i>${e.ts}</i><b>${e.kind}</b> ${esc(e.text)}</div>`).join("")||'<span class="mute">nothing yet</span>');
+  announce(B)}
+function announce(b){
+  if(seq===null){seq=b.event_seq;return}
+  const fresh=b.events.filter(e=>e.seq>seq);seq=Math.max(seq,b.event_seq);
+  for(const e of fresh){if(!["ready","blocked","question","rejected","finished","done"].includes(e.kind))continue;
+    toast(e.text,e.kind==="blocked"||e.kind==="rejected");
+    if($("notify").checked&&window.Notification&&Notification.permission==="granted")new Notification("chatop",{body:e.text})}}
+function showPacket(p){packet=p.text;$("packet").textContent=p.text;$("pmeta").textContent=(p.chat?`chat ${p.chat} · ${p.kind} · `:"")+`turn ${p.turn} · ~${p.tokens.toLocaleString()} tokens`+(p.kind==="delta"&&p.full_tokens>p.tokens?` (full would be ~${p.full_tokens.toLocaleString()})`:"")+(p.notes.length?" · "+p.notes.join("; "):"")}
 async function next(){try{const p=await api("next",{});showPacket(p);toast(await copy(p.text)||p.copied?"Packet copied. Paste it into your chat.":"Packet ready; copy it from the panel.")}catch(e){toast(e.message,true)}refresh()}
+async function chatPacket(chat,full){try{const p=await api("packet",{chat,full:!!full});showPacket(p);
+  toast((await copy(p.text)||p.copied?`Copied. Paste it into chat ${p.chat}`:"Packet ready; copy it from the panel")+` (${p.kind}, ~${kt(p.tokens)} tok)`)}catch(e){toast(e.message,true)}refresh()}
 function showApply(r){$("applyOut").innerHTML=r.ok?[...r.changes,...(r.red_ok===null?[]:["TDD red: "+(r.red_ok?"proven":"NOT proven")]),...r.checks.map(c=>`check ${c.name}: ${c.code===0?"PASS":"FAIL"}`),...r.messages].map(esc).join("\n"):
   '<span class="bad">REJECTED (nothing changed):\n'+r.errors.map(esc).join("\n")+"</span>\nA repair prompt is ready; it was copied for you.";
   if(!r.ok&&r.repair_prompt)copy(r.repair_prompt);if(r.next_packet){showPacket(r.next_packet);copy(r.next_packet.text);toast("Applied. The next packet is on your clipboard.")}else toast(r.ok?"Applied: "+r.status:"Rejected; repair prompt copied",!r.ok)}
 async function apply(text){try{showApply(await api("apply",{text}));$("reply").value=""}catch(e){toast(e.message,true)}refresh()}
+/* parallel: ANY pasted reply is routed to its chat by its header and applied in the background */
+async function route(text){if(!text||!text.trim())return;$("pasteOut").textContent="routing…";
+  try{const r=await api("paste",{text});$("pasteAny").value="";
+    if(r.ok===false){$("pasteOut").textContent="";toast(r.errors[0],true);if(r.repair_prompt)copy(r.repair_prompt);showApply(r)}
+    else if(r.job){$("pasteOut").textContent=`routed to ${r.chat}; applying in the background…`;fastPoll()}
+    else{showApply(r)}}catch(e){$("pasteOut").textContent="";toast(e.message,true)}refresh()}
+let fp=null;function fastPoll(){clearInterval(fp);let n=0;fp=setInterval(async()=>{await refresh();if(++n>60||(B&&!(B.jobs||[]).some(j=>j.status==="running"))){clearInterval(fp);$("pasteOut").textContent=""}},700)}
+$("pasteAny").addEventListener("paste",()=>setTimeout(()=>route($("pasteAny").value),30));
+$("btnPasteClip").onclick=async()=>{try{route(await navigator.clipboard.readText())}catch{toast("Browser blocked clipboard read; paste into the box instead",true)}};
+$("btnNextUp").onclick=()=>chatPacket(null,false);
+$("btnDispatch").onclick=async()=>{try{const a=await api("dispatch",{});toast(a.length?a.map(x=>`${x.issue} → ${x.chat}`).join(", "):"nothing to dispatch")}catch(e){toast(e.message,true)}refresh()};
+$("chats").addEventListener("click",async ev=>{const b=ev.target.closest("button[data-act]");if(!b)return;const chat=b.dataset.chat,act=b.dataset.act;
+  try{if(act==="packet")await chatPacket(chat,false);else if(act==="full")await chatPacket(chat,true);
+    else if(act==="repair"){const c=B.chats.find(x=>x.id===chat);toast(await copy(c.repair)?`Repair prompt copied. Paste it into chat ${chat}`:"copy failed",false)}
+    else if(act==="reset"){await api("chat/reset",{chat});toast(`${chat} reset: its next packet is a full one`);refresh()}
+    else if(act==="accept"){await api("accept",{chat});refresh()}
+    else if(act==="answer"){for(const d of b.closest(".chat").querySelectorAll(".q")){const choices=[...d.querySelectorAll("input:checked")].map(i=>i.value);
+      await api("answer",{qid:d.dataset.id,choices,other:d.querySelector("[data-other]").value,chat})}refresh()}}catch(e){toast(e.message,true)}});
+$("btnPar").onclick=async()=>{try{await api("configure",{key:"max_parallel",value:$("parSel").value});if(S&&S.phase==="slice")await api("dispatch",{});toast("max_parallel = "+$("parSel").value)}catch(e){toast(e.message,true)}refresh()};
+$("notify").onchange=e=>{if(e.target.checked&&window.Notification)Notification.requestPermission()};
 $("btnNext").onclick=next;$("btnCopy").onclick=async()=>toast(await copy(packet)?"copied":"copy failed",false);
 $("btnApply").onclick=()=>apply($("reply").value);
 $("btnPasteApply").onclick=async()=>{try{apply(await navigator.clipboard.readText())}catch{toast("Browser blocked clipboard read; paste into the box instead",true)}};
-$("btnApprove").onclick=async()=>{try{await api("approve",{note:""});await next()}catch(e){toast(e.message,true)}};
+$("btnApprove").onclick=async()=>{try{await api("approve",{note:""});S&&await refresh();if(!(S&&S.mode==="parallel"&&S.chats.length))await next()}catch(e){toast(e.message,true)}refresh()};
 $("btnReject").onclick=async()=>{try{await api("reject",{note:$("rejectNote").value});await next()}catch(e){toast(e.message,true)}};
 $("btnUndo").onclick=async()=>{try{const r=await api("undo",{});toast("restored "+r.restored.join(", "))}catch(e){toast(e.message,true)}refresh()};
 $("btnChecks").onclick=async()=>{await api("checks/accept",{});refresh()};
 $("btnFeature").onclick=async()=>{try{await api("feature",{text:$("featureText").value});await next()}catch(e){toast(e.message,true)}};
 $("btnInit").onclick=async()=>{try{await api("init",{track:$("initTrack").value||null,idea:$("initIdea").value});await refresh()}catch(e){toast(e.message,true)}};
 $("btnAccept").onclick=async()=>{await api("accept",{});await next()};
-$("btnAnswers").onclick=async()=>{try{for(const d of document.querySelectorAll(".q")){const id=d.dataset.id;
+$("btnAnswers").onclick=async()=>{try{for(const d of document.querySelectorAll("#questions .q")){const id=d.dataset.id;
   const choices=[...d.querySelectorAll("input:checked")].map(i=>i.value);const other=d.querySelector("[data-other]").value;await api("answer",{qid:id,choices,other})}await next()}catch(e){toast(e.message,true)}};
 $("watch").onchange=e=>{clearInterval(timer);$("watch").parentElement.classList.toggle("on",e.target.checked);if(e.target.checked)timer=setInterval(async()=>{try{const r=await api("watch",{last_seen:lastSeen});
   lastSeen=r.last_seen;if(r.result){showApply(r.result);refresh()}}catch(e){toast(e.message,true)}},1500)};
-refresh();
+refresh();setInterval(refresh,2000);
 </script>
 </body>
 </html>

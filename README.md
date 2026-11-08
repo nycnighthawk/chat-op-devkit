@@ -14,7 +14,7 @@ and all code search goes through the [`codegraph`](https://github.com/colbymchen
 * **Playbook and design (interactive HTML):** [`docs/chatop-playbook.html`](docs/chatop-playbook.html). Download it
   and open it in a browser. It covers architecture, decisions, the kit, setup, prompts, use-case walkthroughs and labs.
 * Markdown versions: [Getting started](docs/GETTING-STARTED.md) · [Playbook](docs/PLAYBOOK.md) ·
-  [Labs](docs/LABS.md) · [Architecture](docs/ARCHITECTURE.md) · [Decisions (ADRs)](docs/DECISIONS.md)
+  [Mock UI](docs/chatop-mock-ui.html) · [Labs](docs/LABS.md) · [Architecture](docs/ARCHITECTURE.md) · [Decisions (ADRs)](docs/DECISIONS.md)
 
 ## Why
 
@@ -26,6 +26,7 @@ matter, and hand-applying code that was never run. `chatop` removes all three:
 | Re-explaining state every chat | Project memory lives in the repo (`.chatop/state.json`, `docs/*.md`). Every packet is self-contained, so a fresh chat works. |
 | "Paste me file X" round-trips | Slices declare `touches`; chatop pre-loads those files and symbols through codegraph (`query`, `callers`, `impact`, `affected`). Leftover gaps are batched with `@@need`. |
 | Manually applying code | The LLM answers in one machine-applicable envelope. chatop validates paths, applies atomically, runs the checks, and feeds the evidence back. |
+| Waiting on one chat at a time | **Parallel relay**: the plan becomes issues; several chats work at once, each issue goes to the chat that already holds its files, replies are routed by header in any order, and a failing chat never blocks another. |
 | TDD on the honour system | Two-stage apply: tests are written alone and must **fail**, then the code is applied and everything must **pass**. Both in one turn. |
 | Lost questions | `@@ask` questions arrive as multi-select forms with the recommended options pre-checked, plus free-text "other". One key accepts all. |
 
@@ -57,6 +58,17 @@ chatop web              # or http://127.0.0.1:8765
 
 Existing code: `chatop init --track adopt` (sane code by other agents) or `--track audit` (unknown quality; the default
 for code with no passing tests). Finished project, new work: `chatop feature "Add OFX import"`.
+
+## Parallel relay
+
+```bash
+chatop init --parallel 3 --idea "…"     # or: chatop config --set max_parallel 3
+chatop board                              # chats, issues, events;  web UI: the board is the main view
+```
+The approved plan becomes **issues** (`depends`, `touches`). Each ready issue goes to a chat: new chats get a full
+packet, continuing chats a small **delta**. Paste any reply anywhere: its `chat=` header routes it. Generated files
+are linted **all at once**; a chat's failing code stays in its own overlay. Try it without installing anything:
+[`docs/chatop-mock-ui.html`](docs/chatop-mock-ui.html) (the real page on a scripted backend).
 
 ## Tracks
 
@@ -90,7 +102,7 @@ The import rule (enforced by review and by the test layout): `domain` imports no
 ## Develop chatop itself (TDD)
 
 ```bash
-pytest -q            # 62 tests: domain unit, adapter contract, session use cases (real git + pytest), UI shells
+pytest -q            # 126 tests: domain unit, adapter contract, session + lane use cases (real git + pytest), UI shells, labs, mock UI (node)
 mypy                 # --strict
 ruff check src tests
 ```

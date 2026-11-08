@@ -18,7 +18,7 @@ chatop --help
 Build or verify from source:
 
 ```bash
-pytest -q && mypy && ruff check src tests     # 62 tests, including all labs end to end
+pytest -q && mypy && ruff check src tests     # 126 tests, including all five labs end to end
 python -m build                               # optional: wheel in dist/ (pip install build)
 ```
 
@@ -93,28 +93,57 @@ auto_next = true             # build + copy the next packet right after a succes
 codegraph_bin = "codegraph"
 check_timeout = 900
 max_file_lines = 400         # larger files are truncated in context (the LLM can @@need symbols)
+max_parallel = 1             # chats worked at once; >1 turns the plan into issues for parallel chats
+max_attempts = 4             # failed attempts before an issue is blocked for a human decision
+max_issues_per_chat = 3      # after this many issues a chat is retired (long chats drift)
+auto_dispatch = true         # hand newly unblocked issues to chats as soon as one finishes
+delta_packets = true         # continuing chats get only what changed
 
 [checks]
 test = "python -m pytest -q"
 typecheck = "python -m mypy --strict src"
 lint = "ruff check ."
+
+[preflight]                  # optional: linters run ONCE over all generated files before tests ({files})
+"**/*.py" = "ruff check --quiet {files}"
 ```
+
+Python, JSON and TOML files are always syntax-checked in one shot with no configuration.
 
 ## 7. Command reference
 
 | Command | Purpose |
 |---|---|
-| `chatop init [--track new\|adopt\|audit] [--idea T \| --idea-file F]` | start managing the project |
-| `chatop next [--accept] [--approve] [--print] [--no-clip]` | build and copy the packet (idempotent within a turn) |
+| `chatop init [--track new\|adopt\|audit] [--idea T \| --idea-file F] [--parallel N]` | start managing the project |
+| `chatop next [CHAT] [--full] [--accept] [--approve] [--print] [--no-clip]` | build and copy the packet (idempotent within a turn). Parallel mode: the next chat up, or the named one; `--full` for a fresh tab |
 | `chatop apply [FILE\|-] [--force]` | apply a reply (default: from the clipboard) |
 | `chatop watch [--interval S]` | clipboard ping-pong |
-| `chatop answer [ID CHOICE… --other T]` / `chatop accept` | answer questions |
+| `chatop answer [ID CHOICE… --other T] [--chat C]` / `chatop accept [--chat C]` | answer questions |
+| `chatop board [--json]` | parallel mode: chats, issues, recent events, tokens saved |
+| `chatop dispatch` · `chatop assign ISSUE [--chat C]` | hand ready issues to chats (automatic by default) · manual override |
+| `chatop reset-chat CHAT` | unblock a chat, or you opened a fresh tab: its next packet is a full one |
+| `chatop config [--set KEY VALUE]` | show options · change a scalar option (e.g. `max_parallel 3`) |
 | `chatop approve [--note T]` / `chatop reject NOTE` | gates |
 | `chatop feature "TEXT" [--force]` | new work on a finished track |
 | `chatop checks [--accept] [--set N CMD] [--unset N]` | manage check commands |
 | `chatop undo` | revert the last uncommitted apply (files and state) |
 | `chatop status [--json]` · `chatop doctor` | where am I · environment |
 | `chatop tui` · `chatop web [--port 8765]` | UIs |
+
+## 7b. Parallel relay in five minutes
+
+```bash
+chatop init --track new --parallel 3 --idea "…"     # or later: chatop config --set max_parallel 3
+chatop web                                           # the board is the web UI's main view (TUI: tab "Board")
+```
+1. Work PRD → SPEC → PLAN as usual. Approve the plan: chatop turns it into issues and opens chats for every issue
+   that can start (the board shows them as *ready to send*).
+2. Open one browser tab per chat and name them `c1, c2, …`. For each ready chat press **Copy packet**, paste it in its tab.
+3. Whenever a tab finishes, copy its `chatop` block and paste it into the big **paste box** (or run `chatop watch`).
+   The header routes it; chatop applies it in the background and shows *ready / done / question / blocked*.
+4. A chat with a *ready* badge has its next packet waiting (a small delta). Repeat until the board says *finished*.
+
+No install? Open [`chatop-mock-ui.html`](chatop-mock-ui.html): the real page against a scripted backend and chat tabs.
 
 ## 8. Troubleshooting
 
@@ -124,4 +153,9 @@ lint = "ruff check ."
 * **"SEARCH text not found"**: the repair prompt asks the LLM to use `@@need file` or `@@file`. Paste it.
 * **Symbol context is empty**: codegraph is missing or not indexed. Run `chatop doctor`; `codegraph init -i` runs
   on `chatop init` for existing code.
+* **"unknown chat cN" or "several chats are waiting"**: the reply's header is missing or wrong. Add `chat=cN`
+  (the packet's header line shows it) and paste again.
+* **A chat says it has no earlier context** (fresh tab, lost history): `chatop next cN --full`, or "Copy full" in the web UI.
+* **Parallelism stays at 1**: check `chatop config` (`max_parallel`), that the plan has `depends`/`touches`, and that
+  independent issues touch different files (overlapping or empty `touches` run one after another).
 * **Wrong turn**: `chatop next` re-copies the current packet. Old packets are in `.chatop/packets/`.

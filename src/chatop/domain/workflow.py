@@ -40,13 +40,17 @@ def _activate_next_slice(s: State) -> State:
     return s
 
 
-def advance(state: State) -> State:
+def advance(state: State, activate: bool = True) -> State:
+    """Move to the next phase. ``activate=False`` enters SLICE without picking an issue (parallel dispatch)."""
     s = copy.deepcopy(state)
     target = next_phase(s.track, s.phase)
     if target == Phase.SLICE:
         if not any(sl.status != "done" for sl in s.slices):
             raise WorkflowError("PLAN produced no open slices; re-run the plan turn")
         s.phase = Phase.SLICE
+        if not activate:
+            s.status, s.current_slice = Status.READY, None
+            return s
         return _activate_next_slice(s)
     s.phase = target
     s.refine_round = 0
@@ -54,13 +58,13 @@ def advance(state: State) -> State:
     return s
 
 
-def request_advance(state: State, gates: set[Phase]) -> State:
+def request_advance(state: State, gates: set[Phase], activate: bool = True) -> State:
     """LLM said @@advance. Gated phases wait for the human; others move on."""
     if state.phase in gates:
         s = copy.deepcopy(state)
         s.status = Status.AWAITING_APPROVAL
         return s
-    return advance(state)
+    return advance(state, activate)
 
 
 def complete_slice(state: State) -> State:

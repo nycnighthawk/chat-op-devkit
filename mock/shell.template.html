@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>chatop mock UI: parallel relay</title>
+<style>
+:root{--bg:#0b0d11;--panel:#141821;--line:#262b36;--fg:#e6e8ee;--mute:#9aa3b2;--acc:#7aa2f7;--ok:#9ece6a;--bad:#f7768e;--warn:#e0af68}
+@media (prefers-color-scheme:light){:root{--bg:#eceff4;--panel:#fff;--line:#d9dee7;--fg:#1d2330;--mute:#5d6678;--acc:#2f5bd3;--ok:#2e7d32;--bad:#c62828;--warn:#a96b00}}
+*{box-sizing:border-box}html,body{height:100%}body{margin:0;font:13px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;background:var(--bg);color:var(--fg);display:flex;flex-direction:column}
+.top{display:flex;gap:12px;align-items:center;padding:8px 14px;border-bottom:1px solid var(--line);background:var(--panel);flex-wrap:wrap}
+.top b{font-size:14px}.tag{font-size:11px;border:1px solid var(--warn);color:var(--warn);border-radius:99px;padding:1px 8px}
+button,select{font:inherit;padding:4px 10px;border-radius:7px;border:1px solid var(--line);background:transparent;color:var(--fg);cursor:pointer}
+button.primary{background:var(--acc);border-color:var(--acc);color:#fff}button:disabled{opacity:.4;cursor:default}
+.clip{flex:1;min-width:260px;font:11.5px ui-monospace,Menlo,monospace;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.clip b{color:var(--fg)}
+.wrap{flex:1;display:grid;grid-template-columns:minmax(0,1fr) 360px;min-height:0}
+@media (max-width:1000px){.wrap{grid-template-columns:1fr;grid-template-rows:70vh auto}}
+iframe{width:100%;height:100%;border:0;background:var(--bg)}
+.side{border-left:1px solid var(--line);overflow:auto;padding:10px;background:var(--panel)}
+.side h3{margin:10px 0 6px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute)}
+.todo{list-style:none;margin:0;padding:0}.todo li{padding:3px 0 3px 22px;position:relative;color:var(--mute)}
+.todo li:before{content:"○";position:absolute;left:3px}.todo li.done{color:var(--fg)}.todo li.done:before{content:"✔";color:var(--ok)}
+.tab{border:1px solid var(--line);border-radius:9px;margin-bottom:10px;background:var(--bg);overflow:hidden}
+.tab header{display:flex;justify-content:space-between;padding:5px 10px;background:var(--line);font-weight:600}
+.tab .body{padding:8px 10px;display:flex;flex-direction:column;gap:6px}
+.tab textarea{width:100%;min-height:46px;font:11px/1.4 ui-monospace,Menlo,monospace;background:var(--panel);color:var(--fg);border:1px dashed var(--line);border-radius:6px;padding:6px;resize:vertical}
+.tab pre{margin:0;max-height:120px;overflow:auto;white-space:pre-wrap;font:11px/1.4 ui-monospace,Menlo,monospace;color:var(--mute)}
+.st{font-size:12px}.st.think{color:var(--warn)}.st.rep{color:var(--ok)}.warn{color:var(--bad);font-size:12px}
+.bar{height:4px;background:var(--line);border-radius:3px;overflow:hidden}.bar i{display:block;height:100%;background:var(--warn);width:0}
+.note{font-size:12px;color:var(--mute)}
+</style>
+</head>
+<body>
+<div class="top"><b>chatop · parallel relay mock</b><span class="tag">scripted LLM, no real model, nothing is built</span>
+  <span class="clip" id="clip">clipboard: (empty)</span>
+  <label>LLM speed <select id="speed"><option value="0.4">fast</option><option value="1" selected>normal</option><option value="2">slow</option></select></label>
+  <button id="restart">Restart scenario</button></div>
+<div class="wrap">
+  <iframe id="app" title="chatop web UI"></iframe>
+  <div class="side">
+    <div class="note">Left: the <b>real</b> chatop web page running on an in-browser fake backend. Below: your browser tabs with chat windows (scripted LLMs). You are the relay: copy a packet from chatop, paste it into the tab it names, copy the reply, paste it into chatop. Paste replies in any order.</div>
+    <h3>Try this</h3><ul class="todo" id="todo"></ul>
+    <h3>Chat tabs</h3><div id="tabs"><div class="note">Tabs appear when chatop opens a chat.</div></div>
+  </div>
+</div>
+<script>
+/*__MOCK_BACKEND__*/
+</script>
+<script>
+const PAGE = "__REAL_PAGE__";
+let clip = "";
+const $ = (id) => document.getElementById(id);
+function classify(t) {
+  const h = /# CHATOP PACKET.* chat (\w+) · turn (\d+) · (full|delta)/.exec(t);
+  if (h) return `packet for <b>${h[1]}</b> (${h[3]}, ~${Math.ceil(t.length / 4).toLocaleString()} tok)`;
+  const r = /<<<CHATOP chat=(\w+) turn=(\d+)>>>/.exec(t);
+  if (r && /@@summary/.test(t)) return `reply from <b>${r[1]}</b>`;
+  if (/^chatop could not/.test(t)) return "repair prompt";
+  return "text";
+}
+function setClip(t) {
+  clip = t;
+  $("clip").innerHTML = "clipboard: " + (t ? classify(t) + " · " + t.slice(0, 70).replace(/\s+/g, " ").replace(/</g, "&lt;") : "(empty)");
+  try { navigator.clipboard.writeText(t).catch(() => {}); } catch (e) { /* the sandbox may block it; the mock keeps its own */ }
+}
+window.shellCopied = setClip;
+window.shellClip = () => clip;
+
+const SHIM = "<script>window.CHATOP_API=(p,b)=>parent.MOCK.api(p,b);window.CHATOP_HOOKS={copied:t=>parent.shellCopied(t)};" +
+  "Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async t=>parent.shellCopied(t),readText:async()=>parent.shellClip()}});<\/script>";
+function loadApp() { $("app").srcdoc = PAGE.replace("<head>", "<head>" + SHIM); }
+
+/* ---- simulated chat windows */
+const tabs = {};
+const BASE = { c1: 2500, c2: 9000, c3: 4500 };
+function think(id) { return (BASE[id] || 4000) * parseFloat($("speed").value); }
+function tab(id) {
+  if (tabs[id]) return tabs[id];
+  const el = document.createElement("div");
+  el.className = "tab";
+  el.innerHTML = `<header><span>Tab ${id}</span><span class="st" id="st-${id}">empty</span></header><div class="body">
+    <textarea id="in-${id}" placeholder="Paste here (Ctrl/Cmd+V), or:"></textarea>
+    <div><button class="primary" id="pb-${id}">Paste clipboard here</button> <button id="cr-${id}" disabled>Copy reply</button></div>
+    <div class="bar"><i id="bar-${id}"></i></div><div class="warn" id="warn-${id}"></div><pre id="out-${id}"></pre></div>`;
+  if ($("tabs").querySelector(".note")) $("tabs").innerHTML = "";
+  $("tabs").appendChild(el);
+  const t = (tabs[id] = { id, hasFull: false, last: "", reply: "", busy: false });
+  $("pb-" + id).onclick = () => receive(t, clip);
+  $("in-" + id).addEventListener("paste", () => setTimeout(() => { receive(t, $("in-" + id).value); $("in-" + id).value = ""; }, 20));
+  $("cr-" + id).onclick = () => { setClip(t.reply); $("st-" + id).textContent = "reply copied"; };
+  return t;
+}
+function receive(t, text) {
+  const id = t.id;
+  if (!text || t.busy) return;
+  const hdr = /# CHATOP PACKET.* chat (\w+) · turn (\d+) · (full|delta)/.exec(text);
+  const repair = /^chatop could not/.test(text);
+  $("warn-" + id).textContent = "";
+  if (!hdr && !repair) { $("warn-" + id).textContent = "That is not a chatop packet. Copy one from chatop first."; return; }
+  if (hdr) {
+    if (hdr[1] !== id) $("warn-" + id).textContent = `This is ${hdr[1]}'s packet. The reply will carry chat=${hdr[1]}, so chatop still routes it right, but this tab's history is now mixed up.`;
+    else if (hdr[3] === "delta" && !t.hasFull) $("warn-" + id).textContent = "This tab never received a full packet: use 'Copy full' in chatop for a fresh tab.";
+    if (hdr[3] === "full") t.hasFull = true;
+    t.last = text;
+  }
+  const source = repair ? t.last : text;
+  $("out-" + id).textContent = repair ? "(repair prompt received)" : text.slice(0, 220) + "\n… (" + Math.ceil(text.length / 4).toLocaleString() + " tokens pasted)";
+  t.busy = true; $("cr-" + id).disabled = true;
+  const total = think(id), t0 = Date.now();
+  $("st-" + id).className = "st think"; $("st-" + id).textContent = "thinking…";
+  const iv = setInterval(() => { $("bar-" + id).style.width = Math.min(100, ((Date.now() - t0) / total) * 100) + "%"; }, 120);
+  setTimeout(() => {
+    clearInterval(iv); $("bar-" + id).style.width = "0";
+    t.reply = MOCK.llmReply(source) || ""; t.busy = false;
+    $("out-" + id).textContent = t.reply.slice(0, 600);
+    $("st-" + id).className = "st rep"; $("st-" + id).textContent = "reply ready";
+    $("cr-" + id).disabled = !t.reply;
+  }, total);
+}
+
+const STEPS = [
+  ["Approve the plan: it becomes issues and chatop opens a chat for S0", (s, f) => f.approved],
+  ["Relay S0 through tab c1 (copy packet, paste, wait, copy reply, paste into chatop)", (s) => s.issues.find((i) => i.id === "S0").status === "done"],
+  ["S1 and S2 are independent: copy BOTH packets before pasting any reply", (s, f) => f.twoChats],
+  ["Paste whichever reply finishes first (c3 is faster than c2): chatop routes it by header", (s, f) => f.outOfOrder],
+  ["The reply with typos is rejected once, listing both files; use its repair prompt", (s, f) => f.batchReject],
+  ["c2's failing test does not stop c3 from finishing (lanes are isolated)", (s, f) => f.isolated],
+  ["c2 continues with a small DELTA packet (compare tokens on its card)", (s, f) => f.delta],
+  ["Answer the question from S3 and finish the project", (s, f) => f.finished],
+];
+function renderSteps() {
+  const s = MOCK.state(), f = MOCK.flags();
+  $("todo").innerHTML = STEPS.map(([t, ok]) => `<li class="${ok(s, f) ? "done" : ""}">${t}</li>`).join("");
+  s.chats.forEach((c) => tab(c.id));
+}
+function restart() { MOCK.reset(); for (const k of Object.keys(tabs)) delete tabs[k]; $("tabs").innerHTML = '<div class="note">Tabs appear when chatop opens a chat.</div>'; setClip(""); loadApp(); renderSteps(); }
+$("restart").onclick = restart;
+setInterval(renderSteps, 500);
+loadApp(); renderSteps();
+</script>
+</body>
+</html>

@@ -20,7 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE = ROOT / "docs" / "playbook.template.html"
 OUT = ROOT / "docs" / "chatop-playbook.html"
-LABS = ["new-project", "continue-feature", "adopt", "audit"]
+LABS = ["new-project", "continue-feature", "adopt", "audit", "parallel-relay"]
 DOCS = ["PLAYBOOK.md", "DECISIONS.md", "GETTING-STARTED.md", "LABS.md", "ARCHITECTURE.md"]
 
 
@@ -64,7 +64,11 @@ def collect_data(record_labs: bool = True) -> dict[str, object]:
                             str(step[key]),
                         )
             labs[lab] = transcript
-    return {"prompts": prompts, "docs": docs, "files": files, "labs": labs}
+    spec = importlib.util.spec_from_file_location("build_mock_ui", ROOT / "scripts" / "build_mock_ui.py")
+    assert spec and spec.loader
+    mock_mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mock_mod)
+    return {"prompts": prompts, "docs": docs, "files": files, "labs": labs, "mock": mock_mod.build()}
 
 
 def render(data: dict[str, object]) -> str:

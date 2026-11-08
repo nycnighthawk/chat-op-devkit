@@ -1,7 +1,7 @@
 Your reply MUST contain exactly this envelope (copy the first line verbatim):
 
 ````chatop
-<<<CHATOP turn=$turn>>>
+$header
 @@summary <one line: what this reply does>
 ...directives...
 <<<END>>>
@@ -33,6 +33,9 @@ new lines
 >>>>>>> REPLACE
 @@end
 ```
+
+The first line of your block must be the header exactly as shown above (it names the chat window, so chatop
+can route your reply even when the human pastes several replies out of order).
 
 Rules: paths are relative to the repo root. Never write to: $protected. File content is literal
 (no line numbers, no extra indentation). Use `@@edit` for large files you have seen and `@@file`
