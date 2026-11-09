@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE = ROOT / "docs" / "playbook.template.html"
 OUT = ROOT / "docs" / "chatop-playbook.html"
 LABS = ["new-project", "continue-feature", "adopt", "audit", "parallel-relay"]
-DOCS = ["PLAYBOOK.md", "DECISIONS.md", "GETTING-STARTED.md", "LABS.md", "ARCHITECTURE.md"]
+DOCS = ["PLAYBOOK.md", "DECISIONS.md", "GETTING-STARTED.md", "LABS.md", "ARCHITECTURE.md", "UX.md"]
 
 
 def collect_data(record_labs: bool = True) -> dict[str, object]:

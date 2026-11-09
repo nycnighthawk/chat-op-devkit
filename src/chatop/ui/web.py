@@ -55,6 +55,11 @@ class ChatIn(BaseModel):
     chat: str
 
 
+class SentIn(BaseModel):
+    chat: str
+    sent: bool = True
+
+
 class AssignIn(BaseModel):
     issue: str
     chat: str | None = None
@@ -215,6 +220,14 @@ def create_app(session_factory: Callable[[], Session]) -> FastAPI:
     def chat_reset(body: ChatIn) -> Any:
         def run() -> dict[str, Any]:
             session.reset_chat(body.chat)
+            return session.board()
+
+        return call(run)
+
+    @app.post("/api/chat/sent")
+    def chat_sent(body: SentIn) -> Any:
+        def run() -> dict[str, Any]:
+            session.mark_sent(body.chat, body.sent)
             return session.board()
 
         return call(run)

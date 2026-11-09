@@ -4,7 +4,7 @@ require("./backend.js");
 const assert = require("assert");
 const M = globalThis.MOCK;
 M.setApplyDelay(0);
-const api = (p, b) => M.api(p, b);
+const api = (p, b, pid) => M.api(p, b, pid);
 const settle = async () => { await M.idle(); await new Promise((r) => setTimeout(r, 5)); await M.idle(); };
 const chatOf = async (id) => (await api("board")).chats.find((c) => c.id === id);
 const paste = async (text) => { const r = await api("paste", { text }); await settle(); return r; };
@@ -70,5 +70,54 @@ const relay = async (chat) => { const p = await api("packet", { chat }); return 
   await relay("c1");
   assert.match((await api("paste", { text: "<<<CHATOP chat=c9 turn=1>>>\n<<<END>>>" })).errors[0], /unknown chat c9/);
   assert.match((await api("paste", { text: "hello" })).errors[0], /No <<<CHATOP/);
+
+  // ---- stages: who acts next, and the "I pasted it" flag
+  M.reset();
+  await api("approve", {});
+  assert.equal((await chatOf("c1")).stage, "send");
+  await api("packet", { chat: "c1" });
+  assert.deepEqual([(await chatOf("c1")).stage, (await chatOf("c1")).owner], ["paste", "you"]);
+  await assert.rejects(() => api("chat/sent", { chat: "c1", sent: true }).then(() => api("chat/sent", { chat: "c9" })), /unknown chat/);
+  await api("chat/sent", { chat: "c1" });
+  let c1 = await chatOf("c1");
+  assert.equal(c1.stage, "waiting"); assert(c1.sent_at > 0 && c1.sent_at < Date.now());
+  await api("chat/sent", { chat: "c1", sent: false });
+  assert.equal((await chatOf("c1")).stage, "paste");
+  await api("chat/sent", { chat: "c1" });
+  await paste(M.llmReply((await api("packet", { chat: "c1" })).text));
+  assert.equal((await chatOf("c1")).stage, "closed");
+  await assert.rejects(() => api("chat/sent", { chat: "c1" }), /no packet out/);
+  // a rejected reply sends the chat back to "fix" until the repair prompt is flagged as pasted
+  const q2 = await relay("c3");
+  await api("chat/sent", { chat: "c3" });
+  const rej = await paste(q2.reply);
+  assert.equal((await chatOf("c3")).stage, "fix");
+  await api("chat/sent", { chat: "c3" });
+  assert.equal((await chatOf("c3")).stage, "waiting");
+  assert.equal((await api("board")).summary.waiting, 1);
+
+  // ---- the hub: several projects, each keeps its own state
+  const hub = M.listProjects();
+  assert.deepEqual(hub.map((x) => x.id).sort(), ["csv2md", "docs-site", "notes-api"]);
+  const byId = Object.fromEntries(hub.map((x) => [x.id, x]));
+  assert.equal(byId["notes-api"].summary.your_move, 2);      // c3 packet to copy + c4 question
+  assert.equal(byId["notes-api"].summary.waiting, 1);        // c2 flagged as pasted minutes ago
+  assert(Date.now() / 1000 - byId["notes-api"].oldest_wait > 200);
+  assert.equal(byId["docs-site"].phase, "done"); assert.equal(byId["docs-site"].summary.percent, 100);
+  M.reset();
+  assert.equal(M.listProjects().find((x) => x.id === "csv2md").summary.your_move, 1); // plan waits for approval
+  const nb = (await api("board", {}, "notes-api")).chats;
+  assert.deepEqual(nb.map((c) => c.stage), ["closed", "waiting", "send", "answer"]);
+  // act in notes-api: answer c4, copy c3, the csv2md project is untouched
+  await api("accept", { chat: "c4" }, "notes-api");
+  const np = await api("packet", { chat: "c3" }, "notes-api");
+  assert(np.text.includes("project `notes-api`"));
+  assert.equal((await api("status")).phase, "plan");
+  // the pending reply in c2 (flagged pasted) can be pasted in any order and closes N1; N3 becomes ready
+  const c2pkt = (await api("packet", { chat: "c2" }, "notes-api")).text;
+  await api("paste", { text: M.llmReply(c2pkt) }, "notes-api"); await settle();
+  const nb2 = await api("board", {}, "notes-api");
+  assert.equal(nb2.issues.find((i) => i.id === "N1").status, "done");
+  assert(nb2.summary.issues_done === 2);
   console.log("mock scenario ok");
 })().catch((e) => { console.error(e); process.exit(1); });

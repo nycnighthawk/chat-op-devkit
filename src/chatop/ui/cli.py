@@ -78,18 +78,24 @@ def _print_board(b: dict[str, Any]) -> None:
     )
     for c in b["chats"]:
         flag = {
-            "ready": "READY",
-            "queued": "READY",
-            "awaiting_reply": "waiting",
-            "applying": "applying",
-            "needs_input": "QUESTIONS",
+            "send": "SEND",
+            "paste": "PASTE IT",
+            "fix": "FIX",
+            "answer": "ANSWER",
             "blocked": "BLOCKED",
-            "done": "free",
-        }[c["status"]]
+            "waiting": "waiting",
+            "applying": "applying",
+            "closed": "closed",
+        }[c["stage"]]
         print(
             f"  {c['id']}  {flag:<9} turn {c['turn']:<2} {c['title'] or '(no issue)'}"
             + (f"  [{c['kind']} packet]" if c["can_send"] else "")
         )
+    sm = b["summary"]
+    print(
+        f"  your move: {sm['your_move']} · waiting for the LLM: {sm['waiting']} · closed: {sm['closed']} · "
+        f"issues {sm['issues_done']}/{sm['issues_total']}"
+    )
     for i in b["issues"]:
         wait = f"  waits for {', '.join(i['waiting_on'])}" if i["waiting_on"] and i["status"] == "todo" else ""
         print(f"    {i['id']:<8} {i['status']:<8} {i['title']}{wait}")
@@ -158,6 +164,9 @@ def build_parser() -> argparse.ArgumentParser:
     asg.add_argument("--chat")
     rc = sub.add_parser("reset-chat", help="unblock a chat / you opened a fresh tab: next packet is a full one")
     rc.add_argument("chat")
+    sn = sub.add_parser("sent", help="flag that you pasted a chat's packet (or repair prompt) into its window")
+    sn.add_argument("chat")
+    sn.add_argument("--undo", action="store_true", help="take the flag back")
     cf = sub.add_parser("config", help="show or change options (max_parallel, max_attempts, ...)")
     cf.add_argument("--set", nargs=2, metavar=("KEY", "VALUE"))
     ap = sub.add_parser("approve", help="approve a gated phase (also accepts proposed checks)")
@@ -282,6 +291,9 @@ def _dispatch(args: argparse.Namespace, s: Session, root: Path, factory: Session
     elif cmd == "reset-chat":
         s.reset_chat(args.chat)
         print(f"chat {args.chat} reset: its next packet carries the full context")
+    elif cmd == "sent":
+        s.mark_sent(args.chat, sent=not args.undo)
+        print(f"chat {args.chat}: " + ("waiting for the LLM's reply" if not args.undo else "flag removed"))
     elif cmd == "config":
         if args.set:
             print(json.dumps(s.configure(args.set[0], args.set[1])))

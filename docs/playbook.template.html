@@ -126,7 +126,7 @@ details { margin-top: 6px; } summary { cursor: pointer; font-size: 13px; color: 
 .dbar .track { background: var(--line); border-radius: 4px; }
 .row-btns { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
 .row-btns button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--chatop); background: var(--chatop); color: #fff; cursor: pointer; }
-#mockBox iframe { width: 100%; height: 780px; border: 1px solid var(--line); border-radius: 10px; margin-top: 10px; background: var(--panel); }
+#mockBox iframe { width: 100%; height: 920px; border: 1px solid var(--line); border-radius: 10px; margin-top: 10px; background: var(--panel); }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
@@ -217,7 +217,8 @@ details { margin-top: 6px; } summary { cursor: pointer; font-size: 13px; color: 
   <div class="grid cards">
     <div class="card"><h4>Issues, not a queue</h4>The approved plan becomes issues. Every issue whose <code>depends</code> are done and whose <code>touches</code> do not collide with a running issue goes to a chat, up to <code>max_parallel</code>.</div>
     <div class="card"><h4>Full, then deltas</h4>A new chat gets the full bootstrap packet. A continuing chat gets only what changed (digests per document and file) and a line naming what it already holds.</div>
-    <div class="card"><h4>Paste anywhere</h4>Replies carry <code>chat=cN</code> in their header. chatop routes them in any order and applies them in the background.</div>
+    <div class="card"><h4>Paste anywhere</h4>Replies carry <code>chat=cN</code> in their header. chatop routes them in any order, even when nothing is focused, and applies them in the background.</div>
+    <div class="card"><h4>Whose move?</h4>Each chat shows who acts next: you (copy, paste, repair, answer), the LLM (with a clock since you flagged the packet as pasted), or chatop. The page opens on what needs you.</div>
     <div class="card"><h4>One-shot lint, isolated lanes</h4>All generated files are syntax-checked together: one repair prompt for every typo. A chat's failing code stays in its own overlay, so it cannot break another chat's checks.</div>
   </div>
   <h3>Plan simulator</h3>
@@ -232,9 +233,16 @@ details { margin-top: 6px; } summary { cursor: pointer; font-size: 13px; color: 
   <h3>Delta packets, measured</h3>
   <p class="muted">From the Lab 5 transcript recorded when this page was built: what each packet cost against a full packet.</p>
   <div id="deltaBars" class="panel"></div>
+  <h3>Whose move is it?</h3>
+  <p>Every chat is in exactly one stage, and the page groups them by who acts next. You flag a packet as pasted
+  because chatop cannot see your browser tabs. The design follows well-known UX laws; each is tied to something you can
+  see in the mock below.</p>
+  <details open class="panel"><summary><b>Stages, screens and the UX laws applied</b> (rendered from <code>docs/UX.md</code>)</summary><div id="uxdoc"></div></details>
   <h3>Try the relay without installing anything</h3>
-  <p>This is the <strong>real chatop web page</strong> on an in-browser backend with scripted chat tabs. Copy a
-  packet, paste it into the tab it names, copy the reply, paste it into chatop's box. Do it out of order on purpose.</p>
+  <p>A <strong>projects hub</strong> (cross-project inbox, progress, what needs you), the <strong>real project page</strong>
+  on an in-browser backend, and simulated chat tabs. Start on the hub, open <code>notes-api</code> (it is mid-flight:
+  one packet to copy, one question, one chat pasted minutes ago), then open <code>csv2md</code> for the guided run.
+  Do things out of order on purpose.</p>
   <div class="row-btns"><button type="button" id="mockLaunch">Launch the interactive mock here</button>
   <span class="muted">Also in the repo as <code>docs/chatop-mock-ui.html</code> (standalone, offline).</span></div>
   <div id="mockBox"></div>
@@ -334,7 +342,7 @@ details { margin-top: 6px; } summary { cursor: pointer; font-size: 13px; color: 
     <div class="card"><h4>codegraph CLI</h4><code>@colbymchenry/codegraph</code>: every code lookup (query, callers, callees, impact, affected, files).</div>
     <div class="card"><h4>Project memory</h4><code>.chatop/</code> state, config, journal; <code>docs/</code> IDEA → PRD → SPEC → PLAN, AS-BUILT, AUDIT, FEATURE.</div>
     <div class="card"><h4>Labs</h4>Five replayable labs with seeds and reference replies; they are also e2e tests.</div>
-    <div class="card"><h4>Mock UI</h4>The real web page on a scripted backend with simulated chat tabs: <code>docs/chatop-mock-ui.html</code>.</div>
+    <div class="card"><h4>Mock UI</h4>Projects hub, the real project page on a scripted backend and simulated chat tabs: <code>docs/chatop-mock-ui.html</code>.</div>
   </div>
   <h3>Repository layout</h3>
   <div class="panel tree" id="tree"></div>
@@ -504,7 +512,7 @@ const LAYERS = {
   domain: ["domain/: pure logic", "reply.py parses the envelope (and its chat/turn header); changes.py validates paths and resolves SEARCH/REPLACE in memory (all or nothing); packet.py cuts sections by priority to the token budget; workflow.py defines tracks, gates and the slice loop; preflight.py lints every file at once; scheduler.py picks issues for chats; delta.py decides what a continuing chat still needs; tdd.py judges a slice.", "May import: stdlib and domain only. 100% unit-testable without I/O."],
   ports: ["ports.py: Protocols", "CodeIndex, Clipboard, Runner, Vcs. These four narrow interfaces are the only way the core touches the outside world.", "Imports: stdlib only."],
   adapters: ["adapters/: one per external system", "codegraph.py wraps the CLI with schema-tolerant JSON parsing. clipboard.py covers pbcopy, wl-copy, xclip, xsel and a file fallback. runner.py runs only configured checks (no bytecode, to avoid stale .pyc). git.py commits, lists files, and reports churn and log.", "May import: ports, stdlib."],
-  tests: ["tests/: TDD at every layer", "126 tests: domain unit, adapter contract (injected exec), Session and lane use cases against real git and pytest in temp dirs, UI shells, all five labs replayed end to end, and the mock UI scenario run under node.", "Fakes implement the same Protocols, so the contract is shared."],
+  tests: ["tests/: TDD at every layer", "145 tests: domain unit, adapter contract (injected exec), Session and lane use cases against real git and pytest in temp dirs, UI shells, all five labs replayed end to end, and the mock UI scenario run under node.", "Fakes implement the same Protocols, so the contract is shared."],
 };
 function showLayer(k) {
   document.querySelectorAll(".layer").forEach((g) => g.classList.toggle("sel", g.dataset.k === k));
@@ -644,7 +652,7 @@ const ANN = {
   "src/chatop/domain/models.py": "State, Slice, Question, Need", "src/chatop/ports.py": "the 4 narrow Protocols",
   "src/chatop/app/session.py": "the facade every UI calls", "src/chatop/app/lanes.py": "parallel chats: dispatch, routing, delta packets, overlays", "src/chatop/domain/scheduler.py": "which issues run together, which chat takes the next",
   "src/chatop/domain/delta.py": "what a continuing chat still needs", "src/chatop/domain/preflight.py": "one-shot syntax check of all generated files", "src/chatop/domain/tdd.py": "slice verdict (serial and parallel)",
-  "mock/backend.js": "in-browser fake backend (tested with node)", "docs/chatop-mock-ui.html": "standalone mock UI", "src/chatop/app/recon.py": "LLM-free reconnaissance", "src/chatop/app/wiring.py": "composition root",
+  "mock/backend.js": "in-browser fake backend (tested with node)", "docs/chatop-mock-ui.html": "standalone mock UI: hub + project page + chat tabs", "src/chatop/domain/stage.py": "who acts next: stage and owner of every chat", "docs/UX.md": "the relay stages and the UX laws applied", "mock/browser.test.js": "drives the mock in a real browser", "src/chatop/app/recon.py": "LLM-free reconnaissance", "src/chatop/app/wiring.py": "composition root",
   "src/chatop/adapters/codegraph.py": "codegraph CLI adapter", "src/chatop/ui/cli.py": "chatop command", "src/chatop/ui/tui.py": "Textual TUI", "src/chatop/ui/web.py": "FastAPI web UI",
   "labs/run_lab.py": "replay or show a lab", "scripts/build_playbook.py": "builds this page", "docs/chatop-playbook.html": "this page",
 };
@@ -666,6 +674,7 @@ function setupDocs() {
   const start = arch.indexOf("## Boundary surfaces"), end = arch.indexOf("## One turn");
   $("archdoc").innerHTML = md(arch.slice(start, end).replace(/^## .*\n/, ""), 1) + md(arch.slice(arch.indexOf("## Data layout")), 1);
   $("gs").innerHTML = md(DATA.docs["GETTING-STARTED.md"].replace(/^# .*\n/, ""), 1);
+  $("uxdoc").innerHTML = md(DATA.docs["UX.md"].replace(/^# .*\n/, ""), 3);
   $("labsdoc").innerHTML = md(DATA.docs["LABS.md"].replace(/^# .*\n/, ""), 1);
   $("pb").innerHTML = md(DATA.docs["PLAYBOOK.md"].replace(/^# .*\n/, ""), 1);
 }

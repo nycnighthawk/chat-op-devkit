@@ -7,14 +7,16 @@
  */
 (function (root) {
   "use strict";
-  const ISSUES = [
+  // Three projects share one engine: csv2md is the live walkthrough, the other two start mid-flight so the hub has
+  // something to show (a packet waiting to be copied, one flagged as pasted, a question, a finished project).
+  const CSV_ISSUES = [
     { id: "S0", title: "Walking skeleton", touches: ["pyproject.toml", "src/csv2md/__init__.py"], depends: [] },
     { id: "S1", title: "Converter core", touches: ["src/csv2md/convert.py"], depends: ["S0"] },
     { id: "S2", title: "Numeric columns", touches: ["src/csv2md/align.py"], depends: ["S0"] },
     { id: "S3", title: "CLI with --align", touches: ["src/csv2md/cli.py", "src/csv2md/convert.py", "src/csv2md/align.py"], depends: ["S1", "S2"] },
   ];
   // what the scripted "LLM" does on its 1st, 2nd, ... reply for an issue
-  const SCRIPT = { S0: ["pass"], S1: ["fail", "pass"], S2: ["syntax", "pass"], S3: ["ask", "pass"] };
+  const CSV_SCRIPT = { S0: ["pass"], S1: ["fail", "pass"], S2: ["syntax", "pass"], S3: ["ask", "pass"] };
   const SPEC = ("## SPEC: csv2md\n\n### Architecture\n- `csv2md.convert` pure core: `to_markdown(rows) -> str`\n- `csv2md.align` pure helper: `numeric_columns(rows) -> set[int]`\n" +
     "- `csv2md.cli` thin I/O shell. Import rule: cli -> convert, align; core imports only the stdlib.\n\n### Data model\nRows are `list[list[str]]`; the first row is the header.\n\n" +
     "### Errors\nA missing file prints to stderr and returns 2.\n\n### Test strategy\nUnit tests for the core (AC-1.x, AC-3.1); CLI tests with injected stdin and a temp file (AC-2.x, AC-3.2).\n").repeat(3);
@@ -22,21 +24,57 @@
   const RULES = "You are the engineer-of-record for this project, working through chatop, a copy/paste harness. You cannot run anything yourself.\n" +
     "Operating rules: this packet is your whole world; reply with exactly ONE CHATOP block in a 4-backtick chatop fence; batch everything in one reply; never invent command output; Python must be fully type-annotated.\n";
   const CONTRACT = "Your reply MUST contain exactly this envelope (copy the first line verbatim):\n@@summary <one line> / @@test <path> / @@file <path> / @@edit <path> / @@ask / @@need / @@decision / @@advance ... <<<END>>>\n".repeat(2);
-  const REPO = "src/csv2md/\n  __init__.py\n  convert.py\n  align.py\n  cli.py\ntests/\n";
+  const CSV_REPO = "src/csv2md/\n  __init__.py\n  convert.py\n  align.py\n  cli.py\ntests/\n";
+  const NOTES_ISSUES = [
+    { id: "N0", title: "Project skeleton", touches: ["pyproject.toml", "src/notes/__init__.py"], depends: [] },
+    { id: "N1", title: "Note model + store", touches: ["src/notes/store.py"], depends: ["N0"] },
+    { id: "N2", title: "HTTP routes", touches: ["src/notes/api.py"], depends: ["N0"] },
+    { id: "N5", title: "Rate limiting", touches: ["src/notes/limits.py"], depends: ["N0"] },
+    { id: "N3", title: "Search endpoint", touches: ["src/notes/search.py"], depends: ["N1"] },
+    { id: "N4", title: "API docs", touches: ["docs/api.md"], depends: ["N2", "N3"] },
+  ];
+  const DOCS_ISSUES = [
+    { id: "D0", title: "Site skeleton", touches: ["mkdocs.yml"], depends: [] },
+    { id: "D1", title: "Getting started page", touches: ["docs/start.md"], depends: ["D0"] },
+    { id: "D2", title: "Reference pages", touches: ["docs/ref.md"], depends: ["D0"] },
+  ];
+  const SCENARIOS = {
+    csv2md: { name: "csv2md", track: "new", blurb: "CSV to Markdown tables CLI", issues: CSV_ISSUES, script: CSV_SCRIPT, repo: CSV_REPO, plan: true },
+    "notes-api": { name: "notes-api", track: "continue", blurb: "Add rate limiting and search to the notes API", issues: NOTES_ISSUES, repo: "src/notes/\n  __init__.py\n  store.py\n  api.py\ntests/\n", script: { N2: ["fail", "pass"] } },
+    "docs-site": { name: "docs-site", track: "adopt", blurb: "Documentation site for the toolkit", issues: DOCS_ISSUES, repo: "docs/\nmkdocs.yml\n", script: {} },
+  };
 
   const tok = (t) => Math.ceil(t.length / 4);
   const overlaps = (a, b) => a.some((x) => b.includes(x));
-  let st = null;
-  let lock = Promise.resolve();
   const timing = { apply: 1400 };
-
-  function fresh() {
-    st = {
-      phase: "plan", status: "awaiting_approval", maxPar: 3, seq: 0, events: [], jobs: [], chats: [], flags: {},
-      replies: {}, issues: ISSUES.map((i) => Object.assign({}, i, { status: "todo", lane: null, attempts: 0 })),
-    };
+  const projects = {}; // id -> state; every function below works on `st`, the project selected by within()
+  let st = null;
+  function within(pid, fn) {
+    const proj = projects[pid];
+    if (!proj) throw Object.assign(new Error("unknown project " + pid), { mock: true });
+    const prev = st; st = proj;
+    try { return fn(); } finally { st = prev; }
   }
-  fresh();
+
+  // who acts next (mirrors src/chatop/domain/stage.py)
+  const STAGE_OWNER = { send: "you", paste: "you", fix: "you", answer: "you", blocked: "you", waiting: "llm", applying: "chatop", closed: "nobody" };
+  function stageOf(c) {
+    if (c.status === "queued" || c.status === "ready") return "send";
+    if (c.status === "awaiting_reply") return c.sentAt ? "waiting" : c.repair ? "fix" : "paste";
+    return { applying: "applying", needs_input: "answer", blocked: "blocked", done: "closed" }[c.status];
+  }
+
+  function fresh(id) {
+    const sc = SCENARIOS[id];
+    const proj = {
+      id, sc, phase: sc.plan ? "plan" : "slice", status: sc.plan ? "awaiting_approval" : "ready", maxPar: 3, seq: 0, events: [], jobs: [], chats: [], flags: {},
+      replies: {}, lock: Promise.resolve(), issues: sc.issues.map((i) => Object.assign({}, i, { status: "todo", lane: null, attempts: 0 })),
+    };
+    projects[id] = proj;
+    if (id === "notes-api") within(id, seedNotes);
+    if (id === "docs-site") within(id, seedDocs);
+  }
+  function resetAll() { Object.keys(SCENARIOS).forEach(fresh); }
 
   const ts = () => new Date().toTimeString().slice(0, 8);
   function event(kind, chat, issue, text) {
@@ -92,10 +130,38 @@
     return r.length ? r[0] : null;
   }
 
+  // ---- seeds for the two projects that start mid-flight
+  function remember(c, is) {
+    ["doc:docs/SPEC.md", "doc:docs/PRD.md", "repomap"].concat(is.touches.map((t) => "file:" + t)).forEach((k) => { if (!c.seen.includes(k)) c.seen.push(k); });
+  }
+  function seedNotes() {
+    const n0 = issue("N0"), c1 = newChat();
+    n0.status = "done"; c1.issuesDone = ["N0"]; c1.status = "done"; c1.turn = 1; c1.title = "N0 · " + n0.title; c1.tokensSent = c1.tokensFull = 2300; remember(c1, n0);
+    const c2 = newChat(), n1 = issue("N1");               // pasted 4 minutes ago: waiting for the LLM
+    n1.status = "active"; n1.lane = c2.id; c2.issue = "N1"; c2.title = "N1 · " + n1.title; c2.turn = 1; c2.status = "awaiting_reply";
+    c2.sentAt = Date.now() - 4 * 60000; c2.kind = "full"; c2.packet = packetText(c2, "full"); c2.packetFull = c2.tokensSent = c2.tokensFull = tok(c2.packet); remember(c2, n1);
+    const c3 = newChat(), n2 = issue("N2");               // chatop has the packet; you have to copy it
+    n2.status = "active"; n2.lane = c3.id; c3.issue = "N2"; c3.title = "N2 · " + n2.title; c3.status = "queued";
+    const c4 = newChat(), n5 = issue("N5");               // the LLM asked a question
+    n5.status = "active"; n5.lane = c4.id; c4.issue = "N5"; c4.title = "N5 · " + n5.title; c4.turn = 1; c4.status = "needs_input"; remember(c4, n5);
+    c4.kind = "full"; c4.packet = packetText(c4, "full"); c4.packetFull = c4.tokensSent = c4.tokensFull = tok(c4.packet); st.replies.N5 = 1;
+    c4.questions = [{ id: "q1", text: "Limit per API key or per IP address?", options: ["Per API key", "Per IP address"], recommended: ["Per API key"], multi: false, answer: null, other: "" }];
+    st.seq = 4;
+    st.events = [{ seq: 1, ts: "09:12:04", kind: "done", chat: "c1", issue: "N0", text: "N0 done (3f9a1c2)" }, { seq: 2, ts: "09:14:31", kind: "ready", chat: "c2", issue: "N1", text: "N1 opens a new chat (full packet)" },
+      { seq: 3, ts: "09:14:31", kind: "ready", chat: "c3", issue: "N2", text: "N2 opens a new chat (full packet)" }, { seq: 4, ts: "09:18:50", kind: "question", chat: "c4", issue: "N5", text: "chat c4 has 1 question(s)" }];
+  }
+  function seedDocs() {
+    const c = newChat();
+    st.issues.forEach((i) => { i.status = "done"; remember(c, i); });
+    c.issuesDone = st.issues.map((i) => i.id); c.status = "done"; c.turn = 4; c.title = "D2 · Reference pages"; c.tokensSent = 5200; c.tokensFull = 9100;
+    st.phase = "done"; st.status = "done"; st.flags.finished = true; st.seq = 1;
+    st.events = [{ seq: 1, ts: "Yesterday", kind: "finished", chat: null, issue: null, text: "all issues are done" }];
+  }
+
   // ---- packets
   function packetText(c, kind) {
     const is = issue(c.issue);
-    const head = "# CHATOP PACKET · project `csv2md` · chat " + c.id + " · turn " + c.turn + " · " + kind + " · issue " + is.id;
+    const head = "# CHATOP PACKET · project `" + st.sc.name + "` · chat " + c.id + " · turn " + c.turn + " · " + kind + " · issue " + is.id;
     const hdr = "<<<CHATOP chat=" + c.id + " turn=" + c.turn + ">>>";
     const task = "## Your task: " + is.id + "\n\n### Phase SLICE: " + is.id + " · " + is.title + " (attempt " + (is.attempts + 1) + ")\nTouches: " + is.touches.join(", ") + "\nDeliver the whole slice in ONE reply: the COMPLETE test suite first, then the implementation.\n";
     const ev = c.evidence ? "\n## Evidence (from chatop's last run)\n\n" + c.evidence + "\n" : "";
@@ -104,7 +170,7 @@
     const state = "\n## State\n\n| id | status | chat |\n|---|---|---|\n" + st.issues.filter((i) => i.status !== "done").map((i) => "| " + i.id + " | " + i.status + " | " + (i.lane || "") + " |").join("\n") + "\n";
     if (kind === "full") {
       return head + "\n\n## Role and rules\n\n" + RULES + "\n## Reply contract\n\n```chatop\n" + hdr + "\n```\n" + CONTRACT + task + state + ans + ev +
-        "\n## Doc: docs/SPEC.md\n\n" + SPEC + "\n## Doc: docs/PRD.md\n\n" + PRD + "\n## Code context for " + is.id + "\n\n" + files + "\n## Repo map\n\n" + REPO;
+        "\n## Doc: docs/SPEC.md\n\n" + SPEC + "\n## Doc: docs/PRD.md\n\n" + PRD + "\n## Code context for " + is.id + "\n\n" + files + "\n## Repo map\n\n" + st.sc.repo;
     }
     const known = ["doc:docs/SPEC.md", "doc:docs/PRD.md", "repomap"].concat(c.seen.filter((k) => k.startsWith("file:")));
     return head + "\n\n## Continuation\n\nYou are continuing this chat. Rules and reply format are unchanged. Start your reply with `" + hdr + "`.\n\n" + task + state + ans + ev +
@@ -123,7 +189,7 @@
       return { turn: c.turn, text: c.packet, tokens: tok(c.packet), notes: [], copied: false, chat: c.id, kind: c.kind, full_tokens: c.packetFull };
     }
     const kind = c.status === "queued" || c.forceFull || body.full ? "full" : "delta";
-    if (fresh) { c.turn += 1; c.status = "awaiting_reply"; }
+    if (fresh) { c.turn += 1; c.status = "awaiting_reply"; c.sentAt = null; }
     const text = packetText(c, kind);
     const fullText = kind === "full" ? text : packetText(c, "full");
     c.packet = text; c.kind = kind; c.packetFull = tok(fullText); c.forceFull = false;
@@ -168,7 +234,7 @@
   function reject(c, errors) {
     const repair = "chatop could not apply your reply for chat " + c.id + ", turn " + c.turn + ". Nothing was changed.\n\nProblems:\n" + errors.map((e) => "- " + e).join("\n") +
       "\n\nResend the COMPLETE corrected reply starting with `<<<CHATOP chat=" + c.id + " turn=" + c.turn + ">>>`.";
-    c.repair = repair;
+    c.repair = repair; c.sentAt = null;
     event("rejected", c.id, c.issue, "reply for " + c.id + " was rejected (" + errors.length + " problem(s)); repair prompt ready");
     return result(c, { ok: false, errors, repair_prompt: repair, messages: ["repair prompt ready"] });
   }
@@ -185,7 +251,7 @@
       return reject(c, ["syntax error in src/csv2md/align.py:1:20: SyntaxError: '(' was never closed", "syntax error in tests/test_align.py:3:18: SyntaxError: '(' was never closed"]);
     }
     c.status = "applying";
-    c.repair = "";
+    c.repair = ""; c.sentAt = null;
     const files = (text.match(/^@@(?:test|file|edit) (\S+)/gm) || []).map((l) => l.split(" ")[1]);
     const changes = files.map((f) => "A " + f + (f.includes("test") ? " [test]" : " [code]"));
     const summary = (/^@@summary (.*)$/m.exec(text) || [null, ""])[1];
@@ -224,14 +290,17 @@
     if (!r.ok) return Object.assign({ job: null }, unrouted(r.error));
     const job = { id: "j" + (st.jobs.length + 1), chat: r.chat, status: "running", result: null, error: "" };
     st.jobs.push(job);
-    lock = lock.then(() => new Promise((resolve) => {
-      const c = chat(r.chat);
+    const proj = st, pid = st.id;
+    proj.lock = proj.lock.then(() => new Promise((resolve) => {
+      const c = within(pid, () => chat(r.chat));
       if (c.status === "awaiting_reply") { c.status = "applying"; }
       setTimeout(() => {
-        try {
-          if (c.status === "applying") c.status = "awaiting_reply";
-          job.result = applyReply(c, body.text); job.status = "done";
-        } catch (e) { job.status = "error"; job.error = String(e.message || e); }
+        within(pid, () => {
+          try {
+            if (c.status === "applying") c.status = "awaiting_reply";
+            job.result = applyReply(c, body.text); job.status = "done";
+          } catch (e) { job.status = "error"; job.error = String(e.message || e); }
+        });
         resolve();
       }, timing.apply);
     }));
@@ -241,7 +310,8 @@
   // ---- views
   function chatView(c) {
     const is = c.issue ? issue(c.issue) : null;
-    return { id: c.id, title: c.title, issue: c.issue, status: c.status, turn: c.turn, issue_status: is ? is.status : null, attempts: is ? is.attempts : 0,
+    const stage = stageOf(c);
+    return { id: c.id, title: c.title, issue: c.issue, status: c.status, turn: c.turn, stage, owner: STAGE_OWNER[stage], sent_at: c.sentAt ? c.sentAt / 1000 : null, issue_status: is ? is.status : null, attempts: is ? is.attempts : 0,
       can_send: sendable(c), kind: c.status === "queued" || c.forceFull ? "full" : "delta", tokens_sent: c.tokensSent, tokens_full: c.tokensFull,
       issues_done: c.issuesDone.slice(), last_summary: c.lastSummary, last_result: c.lastResult.slice(), repair: c.repair, evidence: c.evidence,
       questions: c.questions.filter((q) => q.answer === null && !q.other) };
@@ -253,6 +323,11 @@
     if (st.chats.some((c) => c.status === "needs_input")) return "chats are waiting for your answers";
     return st.phase === "slice" ? "nothing to send: every chat is waiting for its reply, or no issue is ready" : "done";
   }
+  function summarize() {
+    const stages = st.chats.map(stageOf), done = st.issues.filter((i) => i.status === "done").length, total = st.issues.length;
+    return { your_move: stages.filter((x) => STAGE_OWNER[x] === "you").length, waiting: stages.filter((x) => x === "waiting").length, applying: stages.filter((x) => x === "applying").length,
+      closed: stages.filter((x) => x === "closed").length, issues_done: done, issues_total: total, percent: total ? Math.round(100 * done / total) : 0 };
+  }
   function board() {
     const nxt = nextUp();
     const sent = st.chats.reduce((a, c) => a + c.tokensSent, 0), full = st.chats.reduce((a, c) => a + c.tokensFull, 0);
@@ -261,14 +336,14 @@
       issues: st.issues.map((i) => ({ id: i.id, title: i.title, status: i.status, depends: i.depends, touches: i.touches, chat: i.lane, attempts: i.attempts,
         waiting_on: i.depends.filter((d) => issue(d).status !== "done") })),
       next_up: nxt ? { chat: nxt.id, issue: nxt.issue, kind: nxt.status === "queued" || nxt.forceFull ? "full" : "delta" } : null,
-      tokens: { sent, full, saved: Math.max(0, full - sent) }, event_seq: st.seq, events: st.events.slice(-40), hint: hint(nxt), jobs: st.jobs.slice(-20),
+      summary: summarize(), tokens: { sent, full, saved: Math.max(0, full - sent) }, event_seq: st.seq, events: st.events.slice(-40), hint: hint(nxt), jobs: st.jobs.slice(-20),
     };
   }
   function status() {
     const b = board();
-    const planHint = "Review the plan: 4 issues, S1 and S2 can run in parallel chats. Approve to turn it into issues and open chats.";
+    const planHint = "Review the plan: " + st.issues.length + " issues, S1 and S2 can run in parallel chats. Approve to turn it into issues and open chats.";
     return {
-      mode: "parallel", chats: st.phase === "plan" ? [] : b.chats, event_seq: st.seq, max_parallel: st.maxPar, project: "csv2md", track: "new", phase: st.phase, status: st.status,
+      mode: "parallel", chats: st.phase === "plan" ? [] : b.chats, event_seq: st.seq, max_parallel: st.maxPar, project: st.sc.name, track: st.sc.track, phase: st.phase, status: st.status,
       turn: 5, hint: st.phase === "plan" ? planHint : b.hint, slice: null, slices: st.issues.map((i) => ({ id: i.id, title: i.title, status: i.status })),
       questions: [], proposed_checks: {}, checks: { test: "python -m pytest -q", typecheck: "python -m mypy --strict src" }, decisions: ["pure core, thin CLI"],
       history: ["T5 plan: 4 issues, S1 and S2 are independent"], evidence: "", clipboard: "mock",
@@ -286,7 +361,8 @@
     }
   }
 
-  async function api(path, body) {
+  async function api(path, body, pid) { return within(pid || "csv2md", () => apiSync(path, body)); }
+  function apiSync(path, body) {
     body = body || {};
     switch (path) {
       case "status": return status();
@@ -301,8 +377,11 @@
       case "paste": return paste(body);
       case "apply": fail("this is the parallel board: paste replies into the box on top");
       case "job": return st.jobs.find((j) => j.id === body.id) || fail("no such job");
-      case "chat/reset": { const c = chat(body.chat); if (!c) fail("unknown chat " + body.chat); c.seen = []; c.forceFull = true; c.repair = "";
+      case "chat/reset": { const c = chat(body.chat); if (!c) fail("unknown chat " + body.chat); c.seen = []; c.forceFull = true; c.repair = ""; c.sentAt = null;
         if (c.status === "blocked") c.status = "ready"; event("ready", c.id, c.issue, "chat " + c.id + " reset: next packet is a full one"); return board(); }
+      case "chat/sent": { const c = chat(body.chat); if (!c) fail("unknown chat " + body.chat);
+        if (c.status !== "awaiting_reply") fail("chat " + c.id + " has no packet out (status: " + c.status + "); copy its packet first");
+        c.sentAt = body.sent === false ? null : Date.now(); if (c.sentAt) st.flags.flaggedSent = true; return board(); }
       case "accept": { const targets = st.chats.filter((c) => c.status === "needs_input" && (!body.chat || c.id === body.chat));
         targets.forEach((c) => c.questions.forEach((q) => { if (q.answer === null) answers(c.id, q.id, q.recommended.slice(), ""); })); return status(); }
       case "answer": answers(body.chat, body.qid, body.choices, body.other); return status();
@@ -322,23 +401,49 @@
     S2: "@@test tests/test_align.py\nfrom csv2md.align import numeric_columns\n\n\ndef test_detects_numeric_columns() -> None:  # AC-3.1\n    assert numeric_columns([[\"n\", \"t\"], [\"1\", \"a\"]]) == {0}\n...\n@@end\n@@file src/csv2md/align.py\ndef numeric_columns(rows: list[list[str]]) -> set[int]:\n    ...\n@@end",
     S3: "@@test tests/test_cli.py\nfrom csv2md.cli import main\n\n\ndef test_align_flag_right_aligns_numbers() -> None:  # AC-3.2\n    ...\n@@end\n@@edit src/csv2md/convert.py\n<<<<<<< SEARCH\n...\n=======\n...\n>>>>>>> REPLACE\n@@end\n@@file src/csv2md/cli.py\n...\n@@end",
   };
+  function generic(id) {
+    const is = issue(id), t = "tests/test_" + id.toLowerCase() + ".py";
+    return "@@test " + t + "\nfrom pkg import thing\n\n\ndef test_" + id.toLowerCase() + "() -> None:  # " + is.title + "\n    assert thing() is True\n@@end\n" +
+      is.touches.map((x) => "@@file " + x + "\n...\n@@end").join("\n");
+  }
   function llmReply(packetText) {
-    const m = /chat (\w+) · turn (\d+) · (full|delta) · issue (\w+)/.exec(packetText);
+    const m = /project `([\w-]+)` · chat (\w+) · turn (\d+) · (full|delta) · issue (\w+)/.exec(packetText);
     if (!m) return null;
-    const [, chatId, turn, , issueId] = m;
+    const [, project, chatId, turn, , issueId] = m;
+    return within(project, () => scripted(chatId, turn, issueId));
+  }
+  function scripted(chatId, turn, issueId) {
     const n = st.replies[issueId] || 0;
     st.replies[issueId] = n + 1;
-    const script = SCRIPT[issueId] || ["pass"];
+    const script = st.sc.script[issueId] || ["pass"];
     const outcome = script[Math.min(n, script.length - 1)];
     const summary = { pass: issueId + " done: all tests written first, implementation passes", fail: issueId + " first try (one test will fail)", syntax: issueId + " (contains two typos chatop will catch)", ask: issueId + ": one question before I implement" }[outcome];
-    let body = CODE[issueId] || "";
+    let body = CODE[issueId] || generic(issueId);
     if (outcome === "syntax") body = "@@test tests/test_align.py\nclass TestNumeric(\n    def test_detects(self) -> None: ...\n@@end\n@@file src/csv2md/align.py\ndef numeric_columns(rows:\n    return set()\n@@end";
     if (outcome === "ask") body = "@@ask q1 single\nShould --align be on by default?\n- [x] No, opt-in flag\n- [ ] Yes, always\n@@end";
     return "Here is the reply:\n````chatop\n<<<CHATOP chat=" + chatId + " turn=" + turn + ">>>\n@@summary " + summary + "\n" + body + "\n@@mock outcome=" + outcome + "   (scripted)\n<<<END>>>\n````\n";
   }
 
+  // ---- hub: one line per project, what needs the human first
+  function listProjects() {
+    return Object.keys(projects).map((id) => within(id, () => {
+      const sm = summarize(), plan = st.status === "awaiting_approval";
+      const yourMove = sm.your_move + (plan ? 1 : 0);
+      const sent = st.chats.filter((c) => stageOf(c) === "waiting").map((c) => c.sentAt);
+      const next = plan ? "Approve the plan" : st.phase === "done" ? "Finished" :
+        (() => { const c = st.chats.map((x) => [x, stageOf(x)]).filter(([, g]) => STAGE_OWNER[g] === "you").sort((a, b) => ["paste", "fix", "answer", "blocked", "send"].indexOf(a[1]) - ["paste", "fix", "answer", "blocked", "send"].indexOf(b[1]))[0];
+          return c ? { send: "Copy the packet for ", paste: "Confirm you pasted ", fix: "Send the repair prompt to ", answer: "Answer the question from ", blocked: "Decide for " }[c[1]] + c[0].id : sm.waiting ? "Waiting for the LLM" : "Nothing to do"; })();
+      return { id, name: st.sc.name, track: st.sc.track, blurb: st.sc.blurb, phase: st.phase, summary: Object.assign({}, sm, { your_move: yourMove }), next,
+        oldest_wait: sent.length ? Math.min.apply(null, sent) / 1000 : null,
+        chats: st.chats.map((c) => ({ id: c.id, stage: stageOf(c), title: c.title })), events: st.seq };
+    }));
+  }
+
+  resetAll();
   root.MOCK = {
-    api, llmReply, reset: fresh, flags: () => st.flags, state: () => st, board, setApplyDelay: (ms) => { timing.apply = ms; },
-    idle: () => lock,
+    api, llmReply, reset: resetAll, listProjects,
+    flags: (pid) => projects[pid || "csv2md"].flags, state: (pid) => projects[pid || "csv2md"], board: (pid) => within(pid || "csv2md", board),
+    setApplyDelay: (ms) => { timing.apply = ms; },
+    idle: () => Promise.all(Object.values(projects).map((p) => p.lock)),
   };
 })(typeof window !== "undefined" ? window : globalThis);

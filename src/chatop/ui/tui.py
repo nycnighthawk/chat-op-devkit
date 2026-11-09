@@ -146,13 +146,14 @@ class ChatopApp(App[None]):
             return
         b = self.session.board()
         icon = {
-            "ready": "[green]●[/green] ready",
-            "queued": "[green]●[/green] ready",
-            "awaiting_reply": "[yellow]…[/yellow] waiting",
-            "applying": "[cyan]⟳[/cyan] applying",
-            "needs_input": "[magenta]?[/magenta] questions",
+            "send": "[green]●[/green] your move: copy",
+            "paste": "[green]●[/green] your move: paste",
+            "fix": "[red]●[/red] your move: repair",
+            "answer": "[magenta]?[/magenta] your move: answer",
             "blocked": "[red]✖[/red] blocked",
-            "done": "[dim]○ free[/dim]",
+            "waiting": "[yellow]…[/yellow] waiting for LLM",
+            "applying": "[cyan]⟳[/cyan] applying",
+            "closed": "[dim]○ closed[/dim]",
         }
         lines = [
             f"[b]Chats[/b] (max_parallel {b['max_parallel']}) tokens sent {b['tokens']['sent']:,}, "
@@ -160,7 +161,7 @@ class ChatopApp(App[None]):
             "",
         ]
         lines += [
-            f"{c['id']}  {icon[c['status']]:<26} turn {c['turn']:<2} {c['title'] or '-'}"
+            f"{c['id']}  {icon[c['stage']]:<34} turn {c['turn']:<2} {c['title'] or '-'}"
             + (f"  [dim]({c['kind']} packet)[/dim]" if c["can_send"] else "")
             for c in b["chats"]
         ]

@@ -367,3 +367,63 @@ def test_rejected_reply_leaves_a_repair_prompt_on_the_chat_until_the_next_good_a
     assert any(e["kind"] == "rejected" for e in s.board()["events"])
     assert s.apply(reply("c1", 1, GOOD["S1"])).slice_done
     assert s.state.chat("c1").repair == ""  # type: ignore[union-attr]
+
+
+def stage_of_chat(s: Session, chat: str) -> tuple[str, str]:
+    v = next(c for c in s.board()["chats"] if c["id"] == chat)
+    return v["stage"], v["owner"]
+
+
+def test_stages_walk_send_paste_waiting_and_back_to_closed(lanes) -> None:  # type: ignore[no-untyped-def]
+    s, _, _ = lanes
+    s.dispatch()
+    assert stage_of_chat(s, "c1") == ("send", "you")
+    s.build_packet(chat="c1")
+    assert stage_of_chat(s, "c1") == ("paste", "you")  # copied, not yet confirmed pasted
+    s.mark_sent("c1")
+    assert stage_of_chat(s, "c1") == ("waiting", "llm")
+    v = next(c for c in s.board()["chats"] if c["id"] == "c1")
+    assert v["sent_at"] is not None
+    s.mark_sent("c1", sent=False)  # "I did not paste it after all"
+    assert stage_of_chat(s, "c1") == ("paste", "you")
+    s.mark_sent("c1")
+    assert s.apply(reply("c1", 1, GOOD["S1"])).slice_done
+    assert s.state.chat("c1").sent_at is None  # type: ignore[union-attr]
+    assert stage_of_chat(s, "c1") == ("send", "you")  # S4 touches a.py: the same chat is reused, delta packet next
+    s.build_packet(chat="c2")
+    s.mark_sent("c2")
+    assert s.apply(reply("c2", 1, GOOD["S2"])).slice_done
+    assert stage_of_chat(s, "c2") == ("closed", "nobody")  # nothing else is ready for it yet
+
+
+def test_mark_sent_needs_a_packet_that_is_out(lanes) -> None:  # type: ignore[no-untyped-def]
+    s, _, _ = lanes
+    s.dispatch()
+    with pytest.raises(SessionError, match="copy its packet first"):
+        s.mark_sent("c1")
+    with pytest.raises(SessionError, match="unknown chat"):
+        s.mark_sent("c9")
+
+
+def test_a_rejected_reply_sends_the_chat_back_to_fix_until_the_repair_prompt_is_pasted(lanes) -> None:  # type: ignore[no-untyped-def]
+    s, _, _ = lanes
+    s.dispatch()
+    s.build_packet(chat="c1")
+    s.mark_sent("c1")
+    assert not s.apply(reply("c1", 1, "@@file a.py\ndef f(:\n@@end")).ok
+    assert stage_of_chat(s, "c1") == ("fix", "you")
+    s.mark_sent("c1")  # repair prompt pasted into the chat
+    assert stage_of_chat(s, "c1") == ("waiting", "llm")
+
+
+def test_board_summary_counts_what_needs_the_human(lanes) -> None:  # type: ignore[no-untyped-def]
+    s, _, _ = lanes
+    s.dispatch()
+    s.build_packet(chat="c1")
+    s.build_packet(chat="c2")
+    s.mark_sent("c2")
+    sm = s.board()["summary"]
+    assert (sm["your_move"], sm["waiting"], sm["closed"]) == (1, 1, 0)
+    assert (sm["issues_done"], sm["issues_total"], sm["percent"]) == (0, 4, 0)
+    assert s.apply(reply("c2", 1, GOOD["S2"])).slice_done
+    assert s.board()["summary"]["percent"] == 25

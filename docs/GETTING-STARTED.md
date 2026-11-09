@@ -18,7 +18,7 @@ chatop --help
 Build or verify from source:
 
 ```bash
-pytest -q && mypy && ruff check src tests     # 126 tests, including all five labs end to end
+pytest -q && mypy && ruff check src tests     # 145 tests, including all five labs end to end
 python -m build                               # optional: wheel in dist/ (pip install build)
 ```
 
@@ -121,6 +121,7 @@ Python, JSON and TOML files are always syntax-checked in one shot with no config
 | `chatop answer [ID CHOICE… --other T] [--chat C]` / `chatop accept [--chat C]` | answer questions |
 | `chatop board [--json]` | parallel mode: chats, issues, recent events, tokens saved |
 | `chatop dispatch` · `chatop assign ISSUE [--chat C]` | hand ready issues to chats (automatic by default) · manual override |
+| `chatop sent CHAT [--undo]` | flag that you pasted a chat's packet (or repair prompt); the board then shows how long it has been waiting |
 | `chatop reset-chat CHAT` | unblock a chat, or you opened a fresh tab: its next packet is a full one |
 | `chatop config [--set KEY VALUE]` | show options · change a scalar option (e.g. `max_parallel 3`) |
 | `chatop approve [--note T]` / `chatop reject NOTE` | gates |

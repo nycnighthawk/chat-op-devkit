@@ -47,3 +47,55 @@ def test_mock_scenario_runs_under_node() -> None:
     run = subprocess.run(["node", str(ROOT / "mock/scenario.test.js")], capture_output=True, text=True, timeout=60)
     assert run.returncode == 0, run.stderr
     assert "mock scenario ok" in run.stdout
+
+
+def _chrome() -> str | None:
+    return shutil.which("google-chrome") or shutil.which("chromium") or shutil.which("chromium-browser")
+
+
+def _node_path() -> str | None:
+    """Where `playwright` can be resolved from, if anywhere (NODE_PATH, or the global npm root)."""
+    import os
+
+    probe = subprocess.run(
+        ["node", "-e", "console.log(require.resolve('playwright'))"], capture_output=True, text=True, env=os.environ
+    )
+    if probe.returncode == 0:
+        return os.environ.get("NODE_PATH", "")
+    root = (
+        subprocess.run(["npm", "root", "-g"], capture_output=True, text=True).stdout.strip()
+        if shutil.which("npm")
+        else ""
+    )
+    return root if root and (Path(root) / "playwright").exists() else None
+
+
+@pytest.mark.skipif(shutil.which("node") is None or _chrome() is None, reason="node and a Chrome binary are needed")
+def test_mock_ui_relay_flow_in_a_real_browser(tmp_path: Path) -> None:
+    node_path = _node_path()
+    if node_path is None:
+        pytest.skip("playwright is not installed (npm i -g playwright)")
+    import os
+
+    env = {**os.environ, "NODE_PATH": node_path, "CHROME": _chrome() or ""}
+    html = ROOT / "docs" / "chatop-mock-ui.html"
+    run = subprocess.run(
+        ["node", str(ROOT / "mock" / "browser.test.js"), str(html)],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        env=env,
+    )
+    assert run.returncode == 0, run.stdout + run.stderr
+    assert "mock browser ok" in run.stdout
+
+
+def test_mock_ui_has_the_projects_hub_and_the_ux_laws_panel() -> None:
+    html = _builder().build()
+    for needle in (
+        "Your move across all projects",
+        "data-open",
+        "Why it looks like this: the UX laws applied",
+        "I pasted it",
+    ):
+        assert needle in html, needle

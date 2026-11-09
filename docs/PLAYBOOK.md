@@ -152,9 +152,12 @@ already holds the issue's files is reused (it receives a **delta** packet); othe
 receives a **full** packet). Chats that finished `max_issues_per_chat` issues are retired: long chats drift.
 
 **The relay loop.**
-1. The UI shows `N ready to send` and a big "Copy packet for c2 (delta)" button. Copy it, paste it in the browser tab
-   you use for c2 (name your tabs `c1, c2, …`).
-2. Do the same for every other ready chat. You never wait for one chat to finish before starting another.
+1. The page says what is going on in words ("2 chats need you") and offers one big button for the top action
+   (key **N**): "Copy packet for c2 (delta)". Copy it, paste it in the browser tab you use for c2 (name your tabs
+   `c1, c2, …`), then click **I pasted it ✓**. The card moves from *Your move* to *Waiting for the LLM* and starts a
+   clock. (`chatop sent c2` does the same from the terminal.)
+2. Do the same for every other chat under *Your move*. You never wait for one chat to finish before starting another.
+   Every chat is in exactly one stage (send, paste, fix, answer, blocked | waiting | applying | closed); see docs/UX.md.
 3. When any reply arrives, copy it and paste it **anywhere** in chatop: the header says which chat it is. Replies
    from different chats may arrive in any order. In `watch` mode (or the web paste box) even this step is automatic.
 4. chatop applies it in the background and reports: *ready* (next packet waiting), *done* (issue committed and

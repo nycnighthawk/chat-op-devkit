@@ -9,7 +9,7 @@ flowchart TB
   end
   subgraph APP["app/"]
     S[session.py — Session facade]:::core
-    LN[lanes.py — LaneEngine: dispatch, route, delta packets, lane apply]:::core
+    LN[lanes.py — LaneEngine: dispatch, route, delta packets, lane apply, mark_sent]:::core
     W[workspace.py]:::core
     R[recon.py]:::core
     C[config.py]:::core
@@ -84,7 +84,9 @@ sequenceDiagram
 ## Parallel relay (lanes)
 
 A *chat* is one browser tab the human relays to. State lives in `State.chats` and `State.events`; each issue (slice)
-has `depends`, `touches` and `lane`.
+has `depends`, `touches` and `lane`. The UIs do not show the raw status: `domain/stage.py` derives who acts next
+(`send`/`paste`/`fix`/`answer`/`blocked` = you, `waiting` = the LLM, `applying` = chatop, `closed`) from the status, the
+"I pasted it" flag (`Chat.sent_at`) and the repair prompt, and `board()` returns it with a summary (docs/UX.md).
 
 ```mermaid
 stateDiagram-v2

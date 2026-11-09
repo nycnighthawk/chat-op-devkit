@@ -140,6 +140,18 @@ Each entry: context → decision → alternatives → consequences.
   other chat is waiting for a reply or being applied; otherwise it shows a "next up" button and the board hint.
 * **Consequences.** No clobbered clipboards. With `watch`, replies are consumed from the clipboard and routed.
 
+## ADR-021: The board is organised by who acts next, with an explicit "I pasted it" flag
+* **Context.** With several chats, a card per status ("awaiting reply") does not tell the human what to do. "Waiting"
+  hid two different situations: a packet copied but not pasted yet, and a packet pasted into a chat that is writing.
+* **Decision.** Derive a `stage` and an `owner` for every chat (`domain/stage.py`, pure, shared by every UI): `send`,
+  `paste`, `fix`, `answer`, `blocked` belong to the human; `waiting` to the LLM; `applying` to chatop; `closed` to
+  nobody. Add `Chat.sent_at`, set by `mark_sent` (CLI `chatop sent`, `POST /api/chat/sent`, the "I pasted it" button),
+  because chatop cannot observe the chat window. The page groups chats into *Your move* and *Waiting for the LLM*,
+  has one primary button per card and one for the screen (**N**), and routes a reply pasted anywhere on the page.
+* **Consequences.** The human always sees the next action first; the flag is optional (forgetting it costs only an
+  unclear card). The multi-project hub is a mock-only proposal: it needs a project registry the app does not have.
+  Rationale and the UX laws are in docs/UX.md.
+
 ## ADR-020: The mock UI is the real page on a fake backend
 * **Context.** People should be able to try the workflow without installing anything, and a hand-drawn mock drifts.
 * **Decision.** The web page talks to the server only through `window.CHATOP_API`. `docs/chatop-mock-ui.html` embeds

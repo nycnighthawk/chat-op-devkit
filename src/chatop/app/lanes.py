@@ -28,6 +28,7 @@ from chatop.domain.models import SENDABLE, Chat, ChatStatus, Phase, Question, Sl
 from chatop.domain.packet import Section, assemble, estimate_tokens
 from chatop.domain.reply import Reply, envelope_header, parse_reply
 from chatop.domain.scheduler import choose_chat, pick_dispatch
+from chatop.domain.stage import owner_of, stage_of, summarize
 from chatop.domain.tdd import judge_slice
 
 if TYPE_CHECKING:
@@ -230,6 +231,7 @@ class LaneEngine:
         if fresh:
             chat.turn += 1
             chat.status = ChatStatus.AWAITING_REPLY
+            chat.sent_at = None
             name = f"{chat.id}-turn-{chat.turn:04d}"
         if s.index.available():
             s.index.ensure_index()
@@ -585,7 +587,7 @@ class LaneEngine:
         st.proposed_checks |= reply.checks
         st.history.append(f"{chat.id} T{chat.turn} {issue.id}: {reply.summary or '(no summary)'}")
         chat.last_summary = reply.summary
-        chat.repair = ""
+        chat.repair, chat.sent_at = "", None
         chat.questions, chat.needs = reply.questions, reply.needs
         chat.last_result = [*result.changes, *[f"{c.name}: {'PASS' if c.code == 0 else 'FAIL'}" for c in result.checks]]
         self._remember_files(chat, changes)
@@ -660,7 +662,7 @@ class LaneEngine:
         )
         copied = s.clipboard.copy(repair)
         with s._state_lock:
-            chat.repair = repair
+            chat.repair, chat.sent_at = repair, None  # the repair prompt still has to be pasted
             if applying:
                 chat.status = ChatStatus.AWAITING_REPLY
             self._event(
@@ -728,6 +730,17 @@ class LaneEngine:
                 self._event("ready", chat.id, chat.issue, f"chat {chat.id}: answers recorded, next packet ready")
             self._save()
 
+    def mark_sent(self, chat_id: str, sent: bool = True) -> None:
+        """The human confirms they pasted the packet (or repair prompt) into the chat window, or takes it back."""
+        chat = self.st.chat(chat_id)
+        if chat is None:
+            raise SessionError(f"unknown chat {chat_id}")
+        if chat.status != ChatStatus.AWAITING_REPLY:
+            raise SessionError(f"chat {chat_id} has no packet out (status: {chat.status}); copy its packet first")
+        with self.s._state_lock:
+            chat.sent_at = time.time() if sent else None
+            self._save()
+
     def reset_chat(self, chat_id: str) -> None:
         """The human opened a fresh browser tab or decided how to unblock: the next packet carries everything."""
         st = self.st
@@ -735,7 +748,7 @@ class LaneEngine:
         if chat is None:
             raise SessionError(f"unknown chat {chat_id}")
         with self.s._state_lock:
-            chat.seen, chat.force_full, chat.repair = {}, True, ""
+            chat.seen, chat.force_full, chat.repair, chat.sent_at = {}, True, "", None
             issue = st.slice(chat.issue)
             if issue is not None and chat.status in (
                 ChatStatus.BLOCKED,
@@ -784,6 +797,11 @@ class LaneEngine:
                     "kind": "full" if (nxt_chat.status == ChatStatus.QUEUED or nxt_chat.force_full) else "delta",
                 },
                 "tokens": {"sent": sent, "full": full, "saved": max(0, full - sent)},
+                "summary": summarize(
+                    [stage_of(c.status, c.sent_at, c.repair) for c in st.chats],
+                    sum(1 for x in st.slices if x.status == "done"),
+                    len(st.slices),
+                ),
                 "event_seq": st.event_seq,
                 "events": st.events[-40:],
                 "hint": self._hint(nxt_chat),
@@ -791,6 +809,7 @@ class LaneEngine:
 
     def _chat_view(self, c: Chat) -> dict[str, Any]:
         issue = self.st.slice(c.issue)
+        stage = stage_of(c.status, c.sent_at, c.repair)
         return {
             "id": c.id,
             "title": c.title,
@@ -807,6 +826,9 @@ class LaneEngine:
             "last_summary": c.last_summary,
             "last_result": list(c.last_result),
             "repair": c.repair,
+            "stage": stage.value,
+            "owner": owner_of(stage).value,
+            "sent_at": c.sent_at,
             "evidence": c.evidence[-1500:],
             "questions": [q.__dict__ for q in c.questions if not q.answered],
         }

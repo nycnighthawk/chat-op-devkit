@@ -768,6 +768,9 @@ class Session:
     def reset_chat(self, chat: str) -> None:
         self.lanes.reset_chat(chat)
 
+    def mark_sent(self, chat: str, sent: bool = True) -> None:
+        self.lanes.mark_sent(chat, sent)
+
     def configure(self, key: str, value: str) -> dict[str, Any]:
         """Change a scalar option (max_parallel, max_attempts, ...) from a UI."""
         try:

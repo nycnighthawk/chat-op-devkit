@@ -113,6 +113,7 @@ class Chat:
     packet_kind: str = ""  # kind of the packet currently handed out ("full" | "delta")
     packet_full_tokens: int = 0
     repair: str = ""  # repair prompt for the last rejected reply, until the chat's next successful apply
+    sent_at: float | None = None  # epoch seconds: the human flagged the current packet as pasted into the chat
     updated: str = ""
 
 

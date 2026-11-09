@@ -67,8 +67,10 @@ chatop board                              # chats, issues, events;  web UI: the 
 ```
 The approved plan becomes **issues** (`depends`, `touches`). Each ready issue goes to a chat: new chats get a full
 packet, continuing chats a small **delta**. Paste any reply anywhere: its `chat=` header routes it. Generated files
-are linted **all at once**; a chat's failing code stays in its own overlay. Try it without installing anything:
-[`docs/chatop-mock-ui.html`](docs/chatop-mock-ui.html) (the real page on a scripted backend).
+are linted **all at once**; a chat's failing code stays in its own overlay. Every chat shows whose move it is (you /
+the LLM / chatop) and you flag packets as pasted: see [docs/UX.md](docs/UX.md). Try it without installing anything:
+[`docs/chatop-mock-ui.html`](docs/chatop-mock-ui.html): a projects hub, the real project page on a scripted backend, and
+simulated chat tabs.
 
 ## Tracks
 
@@ -102,7 +104,7 @@ The import rule (enforced by review and by the test layout): `domain` imports no
 ## Develop chatop itself (TDD)
 
 ```bash
-pytest -q            # 126 tests: domain unit, adapter contract, session + lane use cases (real git + pytest), UI shells, labs, mock UI (node)
+pytest -q            # 145 tests: domain unit, adapter contract, session + lane use cases (real git + pytest), UI shells, labs, mock UI (node)
 mypy                 # --strict
 ruff check src tests
 ```

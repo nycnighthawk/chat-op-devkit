@@ -116,7 +116,12 @@ def test_cli_parallel_flow(make_session, tmp_path: Path, capsys: pytest.CaptureF
     out = capsys.readouterr().out
     assert "packet for chat c1, turn 1, full" in out
     assert run(s, "board") == 0
-    assert "c1  waiting" in capsys.readouterr().out
+    assert "c1  PASTE IT" in capsys.readouterr().out
+    assert run(s, "sent", "c1") == 0
+    assert "waiting for the LLM" in capsys.readouterr().out
+    assert run(s, "board") == 0
+    out = capsys.readouterr().out
+    assert "c1  waiting" in out and "your move: 1" in out
     reply = tmp_path / "r.md"
     reply.write_text(f"<<<CHATOP chat=c1 turn=1>>>\n{GOOD_A}\n<<<END>>>")
     assert run(s, "apply", str(reply)) == 0
@@ -179,3 +184,16 @@ async def test_tui_board_tab_and_ready_toasts(make_session, tmp_path: Path) -> N
         s.apply(f"<<<CHATOP chat=c1 turn=1>>>\n{GOOD_A}\n<<<END>>>")
         app._poll_events()
         assert app._seen_seq == s.state.event_seq
+
+
+def test_web_can_flag_a_packet_as_pasted(make_session, tmp_path: Path) -> None:  # type: ignore[no-untyped-def]
+    s = lane_session(make_session, tmp_path)
+    client = TestClient(create_app(lambda: s))
+    client.post("/api/dispatch")
+    client.post("/api/packet", json={"chat": "c1"})
+    chat = client.get("/api/board").json()["chats"][0]
+    assert chat["stage"] == "paste"
+    board = client.post("/api/chat/sent", json={"chat": "c1"}).json()
+    assert board["chats"][0]["stage"] == "waiting" and board["summary"]["waiting"] == 1
+    assert client.post("/api/chat/sent", json={"chat": "c1", "sent": False}).json()["chats"][0]["stage"] == "paste"
+    assert client.post("/api/chat/sent", json={"chat": "c7"}).status_code >= 400
