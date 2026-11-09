@@ -13,6 +13,11 @@ and all code search goes through the [`codegraph`](https://github.com/colbymchen
 
 * **Playbook and design (interactive HTML):** [`docs/chatop-playbook.html`](docs/chatop-playbook.html). Download it
   and open it in a browser. It covers architecture, decisions, the kit, setup, prompts, use-case walkthroughs and labs.
+* **Bootstrap it with chat only (interactive HTML):** [`docs/chatop-bootstrap-plays.html`](docs/chatop-bootstrap-plays.html).
+  A play-by-play from an empty folder to continuous development: a verified stdlib kernel (`bootstrap/relay.py`), a
+  design seed, eleven slices in five waves built by parallel chats, a black-box conformance oracle
+  (`bootstrap/accept.py`), then chatop adopts itself and builds its own UIs. Includes a progress board and a
+  downloadable kit. Rebuild it with `python scripts/build_bootstrap.py`; see [bootstrap/README.md](bootstrap/README.md).
 * Markdown versions: [Getting started](docs/GETTING-STARTED.md) · [Playbook](docs/PLAYBOOK.md) ·
   [Mock UI](docs/chatop-mock-ui.html) · [Labs](docs/LABS.md) · [Architecture](docs/ARCHITECTURE.md) · [Decisions (ADRs)](docs/DECISIONS.md)
 

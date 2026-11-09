@@ -1,0 +1,9 @@
+Add the web UI and the terminal UI as thin shells over Session.
+
+Web (FastAPI, `chatop web`): a projects hub; per-project board grouped by stage (your move / waiting for the LLM /
+applying / closed); a single paste box that routes the reply to the right chat by its header and applies it; an
+"I pasted it" button per chat (`sent`); approve and reject for gated phases; the page polls by event_seq.
+
+TUI (Textual, `chatop tui`): the same board and actions, keyboard first.
+
+Both: no business logic of their own, every action is one Session call. Read docs/UX.md and docs/BEHAVIOR.md.
