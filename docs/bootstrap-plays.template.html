@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>chatop bootstrap: play by play, chat only</title>
+<style>
+:root{--bg:#0b0d11;--panel:#141821;--panel2:#1a1f2b;--line:#262b36;--fg:#e6e8ee;--mute:#9aa3b2;--acc:#7aa2f7;--ok:#9ece6a;--bad:#f7768e;--warn:#e0af68;--ask:#bb9af7}
+@media (prefers-color-scheme:light){:root{--bg:#eceff4;--panel:#fff;--panel2:#f4f6fa;--line:#d9dee7;--fg:#1d2330;--mute:#5d6678;--acc:#2f5bd3;--ok:#2e7d32;--bad:#c62828;--warn:#a96b00;--ask:#7b3fc4}}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:56px}
+body{margin:0;font:14px/1.55 system-ui,-apple-system,Segoe UI,sans-serif;background:var(--bg);color:var(--fg)}
+code,pre,kbd{font:12.5px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+code{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padding:0 4px}
+a{color:var(--acc)}
+.top{position:sticky;top:0;z-index:5;display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:8px 16px;background:var(--panel);border-bottom:1px solid var(--line)}
+.top h1{font-size:15px;margin:0}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{border:0;background:transparent;color:var(--mute);padding:6px 12px;cursor:pointer;font:inherit;min-height:32px}
+.seg button[aria-pressed=true]{background:var(--acc);color:#fff}
+button.b{background:var(--panel2);border:1px solid var(--line);color:var(--fg);border-radius:8px;padding:6px 12px;cursor:pointer;font:inherit;min-height:32px}
+button.b:hover{border-color:var(--acc)}
+button.b.pri{background:var(--acc);border-color:var(--acc);color:#fff}
+.prog{margin-left:auto;color:var(--mute);font-size:12.5px}
+.layout{display:grid;grid-template-columns:230px minmax(0,1fr);gap:24px;max-width:1240px;margin:0 auto;padding:16px}
+nav.side{position:sticky;top:60px;align-self:start;max-height:calc(100vh - 76px);overflow:auto;font-size:13px}
+nav.side a{display:block;padding:4px 8px;border-radius:6px;color:var(--mute);text-decoration:none}
+nav.side a:hover{background:var(--panel2);color:var(--fg)}
+nav.side .act{margin-top:10px;font-weight:600;color:var(--fg)}
+nav.side .done::after{content:" \2713";color:var(--ok)}
+main{min-width:0}
+section.hero{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 20px;margin-bottom:16px}
+section.hero h2{margin:0 0 6px}
+h2.act{margin:32px 0 4px;font-size:20px}
+.goal{color:var(--mute);margin:0 0 12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin:12px 0}
+.card.done{opacity:.72}
+.card header{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.card h3{margin:0;font-size:16px;flex:1 1 auto}
+.pid{font:600 12px ui-monospace,monospace;color:var(--acc)}
+.chip{font-size:11.5px;border:1px solid var(--line);border-radius:99px;padding:1px 8px;color:var(--mute)}
+.chip.t{color:var(--ok)}.chip.c{color:var(--ask)}.chip.m{color:var(--warn)}
+.lbl{font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute);margin:12px 0 4px}
+ol.do{margin:4px 0;padding-left:20px}ol.do li{margin:3px 0}
+ul.tight{margin:4px 0;padding-left:20px}
+.cmd{border:1px solid var(--line);border-radius:8px;margin:6px 0;background:var(--panel2);overflow:hidden}
+.cmd .h{display:flex;align-items:center;gap:8px;padding:4px 8px;border-bottom:1px solid var(--line);font-size:12px;color:var(--mute)}
+.cmd .h span{flex:1}
+.cmd pre{margin:0;padding:8px 10px;overflow:auto;white-space:pre}
+.cmd button{font-size:12px;padding:2px 10px;min-height:26px}
+.ok{color:var(--ok)}.bad{color:var(--bad)}
+.exp{border-left:3px solid var(--ok);padding:2px 10px;margin:4px 0}
+.nok{border-left:3px solid var(--bad);padding:2px 10px;margin:4px 0}
+label.dn{display:inline-flex;gap:6px;align-items:center;cursor:pointer;font-size:12.5px;color:var(--mute)}
+input[type=checkbox]{width:16px;height:16px}
+details>summary{cursor:pointer;color:var(--acc)}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{border:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}
+th{background:var(--panel2)}
+.board{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
+.sl{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.sl.ready{border-color:var(--acc)}.sl.locked{opacity:.55}
+.sl h4{margin:0 0 4px;font-size:14px}
+.stage{font-size:11.5px;font-weight:600;border-radius:99px;padding:1px 8px;border:1px solid var(--line)}
+.st-your{color:var(--acc)}.st-wait{color:var(--warn)}.st-apply{color:var(--ask)}.st-closed{color:var(--ok)}.st-block{color:var(--bad)}
+.wave{margin:16px 0 4px;font-weight:600}
+.next{background:var(--panel);border:1px solid var(--acc);border-radius:10px;padding:10px 14px;margin:8px 0}
+.mono{font-family:ui-monospace,monospace}
+.unv li{margin:4px 0}
+footer{color:var(--mute);font-size:12.5px;padding:24px 16px;text-align:center}
+@media (max-width:860px){.layout{grid-template-columns:1fr}nav.side{display:none}}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+</style>
+</head>
+<body>
+<div class="top">
+  <h1>chatop bootstrap · play by play</h1>
+  <div class="seg" role="group" aria-label="Path"><button id="m-seeded" aria-pressed="true" title="Use the verified kernel and the seed design from the kit">Seeded</button><button id="m-purist" aria-pressed="false" title="Have chats write the kernel and the design too">Purist</button></div>
+  <button class="b pri" id="kitbtn">Download kit (.zip)</button>
+  <a href="#board">Board</a><a href="#appx">Appendices</a>
+  <span class="prog" id="prog"></span>
+</div>
+<div class="layout">
+<nav class="side" id="nav" aria-label="Plays"></nav>
+<main id="main">
+<section class="hero" id="top">
+  <h2>From an empty folder to continuous development, with chat only</h2>
+  <p>You will rebuild <b>chatop</b> (the app that relays packets and replies between you and chat LLMs) using nothing but chat windows,
+  a terminal and a clipboard. No coding agent, no harness. Code search is the <code>codegraph</code> CLI.</p>
+  <ol>
+    <li><b>Stage 0, the kernel.</b> One standard-library script, <code>relay.py</code>, builds packets and applies replies with red/green TDD and a commit. It is proven by 9 black-box checks, so you trust it before any chat touches your repo.</li>
+    <li><b>Stage 1, the core.</b> Eleven slices from a plan, in five waves. Slices of a wave share no files, so several chats work at once; you apply their replies in any order. The oracle is <code>accept.py</code>, which replays five labs through the <code>chatop</code> command line.</li>
+    <li><b>Stage 2, self-hosting.</b> chatop adopts its own repo and builds its web UI and TUI with its own parallel relay. From then on the kernel is a rescue tool.</li>
+  </ol>
+  <p><b>Seeded</b> (default) uses the verified kernel and the design documents from the kit. <b>Purist</b> has chats write those too; the later plays are identical. Use the switch above; your progress is kept in this browser.</p>
+  <p class="goal" id="unv-link"></p>
+</section>
+<div id="acts"></div>
+<h2 class="act" id="board">Bootstrap board</h2>
+<p class="goal">Slices by stage, using the same stages chatop's own board uses. A slice unlocks when its dependencies are applied. Click the action to move it on; state is saved here.</p>
+<div id="boardbox"></div>
+<h2 class="act" id="appx">Appendices</h2>
+<div id="appendices"></div>
+</main>
+</div>
+<footer>Generated by scripts/build_bootstrap.py from the kit sources. Embedded files are checked against the repo by the test suite.</footer>
+<script>
+"use strict";
+const DATA = /*__BOOTSTRAP_DATA__*/null;
+const LS = {get(k, d){try{const v=localStorage.getItem("chatop-bootstrap:"+k);return v===null?d:JSON.parse(v)}catch(e){return d}},
+            set(k, v){try{localStorage.setItem("chatop-bootstrap:"+k, JSON.stringify(v))}catch(e){}}};
+const state = {mode: LS.get("mode","seeded"), done: LS.get("done",{}), slices: LS.get("slices",{}), ticks: LS.get("ticks",{})};
+const save = () => {LS.set("mode",state.mode);LS.set("done",state.done);LS.set("slices",state.slices);LS.set("ticks",state.ticks)};
+
+Element.prototype.add=function(...kids){ // like append, but accepts arrays and skips null
+  this.append(...kids.flat().filter(c=>c!==null&&c!==undefined&&c!==false)); return this;
+};
+function h(tag, attrs, ...kids){
+  const e = document.createElement(tag);
+  for (const [k,v] of Object.entries(attrs||{})){
+    if (k==="class") e.className=v; else if (k.startsWith("on")) e.addEventListener(k.slice(2), v); else if (v!==false && v!==null) e.setAttribute(k, v===true?"":v);
+  }
+  for (const c of kids.flat()) if (c!==null && c!==undefined) e.append(c.nodeType?c:document.createTextNode(String(c)));
+  return e;
+}
+function fmt(s){ // `code` spans, safely
+  const out=[]; const parts=String(s).split("`");
+  parts.forEach((p,i)=>out.push(i%2? h("code",{},p): p));
+  return out;
+}
+async function copyText(text, btn){
+  let ok=false;
+  try{ await navigator.clipboard.writeText(text); ok=true; }catch(e){
+    const ta=h("textarea",{style:"position:fixed;opacity:0"}); ta.value=text; document.body.add(ta); ta.select();
+    try{ ok=document.execCommand("copy"); }catch(e2){} ta.remove();
+  }
+  if (btn){ const old=btn.textContent; btn.textContent= ok?"Copied":"Select & copy"; setTimeout(()=>btn.textContent=old,1400); }
+  return ok;
+}
+function download(name, text, type){
+  const blob = text instanceof Blob ? text : new Blob([text],{type:type||"text/plain"});
+  const a=h("a",{href:URL.createObjectURL(blob),download:name}); document.body.add(a); a.click(); a.remove();
+}
+function cmdBlock(label, code){
+  return h("div",{class:"cmd"}, h("div",{class:"h"}, h("span",{}, label), h("button",{class:"b",onclick:e=>copyText(code,e.target)},"Copy")), h("pre",{}, code));
+}
+
+/* ---------- zip (store only, no dependencies) ---------- */
+const CRC = (()=>{const t=[];for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0}return t})();
+function crc32(b){let c=0xFFFFFFFF;for(let i=0;i<b.length;i++)c=CRC[(c^b[i])&255]^(c>>>8);return (c^0xFFFFFFFF)>>>0}
+function makeZip(files){ // files: [{name, text}]
+  const enc=new TextEncoder(), parts=[], central=[]; let offset=0;
+  const u16=n=>[n&255,(n>>8)&255], u32=n=>[n&255,(n>>8)&255,(n>>16)&255,(n>>24)&255];
+  for (const f of files){
+    const name=enc.encode(f.name), data=enc.encode(f.text), crc=crc32(data);
+    const local=new Uint8Array([0x50,0x4b,3,4,...u16(20),...u16(0x0800),...u16(0),...u16(0),...u16(0x21),...u32(crc),...u32(data.length),...u32(data.length),...u16(name.length),...u16(0)]);
+    parts.push(local,name,data);
+    central.push(new Uint8Array([0x50,0x4b,1,2,...u16(20),...u16(20),...u16(0x0800),...u16(0),...u16(0),...u16(0x21),...u32(crc),...u32(data.length),...u32(data.length),...u16(name.length),...u16(0),...u16(0),...u16(0),...u16(0),...u32(0),...u32(offset)]),name);
+    offset+=local.length+name.length+data.length;
+  }
+  const cdSize=central.reduce((a,b)=>a+b.length,0);
+  const end=new Uint8Array([0x50,0x4b,5,6,...u16(0),...u16(0),...u16(files.length),...u16(files.length),...u32(cdSize),...u32(offset),...u16(0)]);
+  return new Blob([...parts,...central,end],{type:"application/zip"});
+}
+const kitFiles = () => DATA.kit.map(k=>({name:k.zip_path,text:k.text}));
+const downloadKit = () => download("chatop-bootstrap-kit.zip", makeZip(kitFiles()));
+
+/* ---------- plays ---------- */
+const WHERE={"terminal":"t","chat":"c","terminal + chat":"c","browser":"c","editor":"t"};
+function playCard(p){
+  const done=!!state.done[p.id];
+  const card=h("article",{class:"card"+(done?" done":""),id:"p-"+p.id,"data-mode":p.mode});
+  const cb=h("input",{type:"checkbox",id:"d-"+p.id,"aria-label":"Done "+p.id}); cb.checked=done;
+  cb.addEventListener("change",()=>{state.done[p.id]=cb.checked;save();card.classList.toggle("done",cb.checked);refresh()});
+  card.add(h("header",{}, h("span",{class:"pid"},p.id), h("h3",{},p.title),
+    h("span",{class:"chip "+WHERE[p.where]},p.where), p.mode!=="both"?h("span",{class:"chip m"},p.mode):null,
+    h("label",{class:"dn"},cb,"done")));
+  card.add(h("div",{class:"lbl"},"Do"), h("ol",{class:"do"}, p.do.map(x=>h("li",{},fmt(x)))));
+  if (p.paste){ const [label,key]=p.paste; const text=DATA.prompts[key];
+    card.add(h("div",{class:"lbl"},"Paste to the chat"), h("details",{}, h("summary",{},label+" ("+text.split("\n").length+" lines)"), cmdBlock(label,text)));
+    if (key==="KERNEL_PROMPT") card.add(h("p",{class:"goal"},"Then paste the contents of ",h("code",{},"relay_acceptance.py")," after it (Artifacts, below)."));
+  }
+  if (p.cmds&&p.cmds.length){ card.add(h("div",{class:"lbl"},"Run"), p.cmds.map(([l,c])=>cmdBlock(l,c))); }
+  if (p.checklist){ card.add(h("div",{class:"lbl"},"Checklist"), h("div",{}, p.checklist.map(([t,c],i)=>{
+      const k=p.id+":"+i, box=h("input",{type:"checkbox"}); box.checked=!!state.ticks[k];
+      box.addEventListener("change",()=>{state.ticks[k]=box.checked;save();refresh()});
+      return h("div",{class:"cmd"}, h("div",{class:"h"}, h("label",{class:"dn"},box,t), h("span",{}), h("button",{class:"b",onclick:e=>copyText(c,e.target)},"Copy")), h("pre",{},c)); }))); }
+  if (p.backlog){ card.add(h("div",{class:"lbl"},"Backlog: paste into chatop feature"), DATA.backlog.map(f=>
+      h("div",{class:"cmd"}, h("div",{class:"h"}, h("span",{},f.id+" · "+f.title+" — "+f.why), h("button",{class:"b",onclick:e=>copyText('chatop feature "'+f.text.replace(/"/g,'\\"')+'"',e.target)},"Copy")), h("pre",{},'chatop feature "'+f.text+'"')))); }
+  if (p.expect) card.add(h("div",{class:"lbl"},"Expect"), p.expect.map(x=>h("div",{class:"exp"},fmt(x))));
+  if (p.check) card.add(h("div",{class:"lbl"},"Check"), cmdBlock("check",p.check));
+  if (p.ifnot) card.add(h("div",{class:"lbl"},"If not"), p.ifnot.map(x=>h("div",{class:"nok"},fmt(x))));
+  return card;
+}
+function renderActs(){
+  const box=document.getElementById("acts"); box.replaceChildren();
+  const nav=document.getElementById("nav"); nav.replaceChildren();
+  nav.add(h("a",{href:"#top"},"Overview"));
+  for (const a of DATA.acts){
+    const visible=a.plays.filter(p=>p.mode==="both"||p.mode===state.mode);
+    box.add(h("h2",{class:"act",id:a.id},a.title), h("p",{class:"goal"},a.goal), visible.map(playCard));
+    const all=visible.every(p=>state.done[p.id]);
+    nav.add(h("a",{href:"#"+a.id,class:"act"+(all?" done":"")},a.title.replace(/^Act \d\. /,"Act "+a.id.slice(3)+" · ")));
+    for (const p of visible) nav.add(h("a",{href:"#p-"+p.id,class:state.done[p.id]?"done":""},p.id+" "+p.title));
+  }
+  nav.add(h("a",{href:"#board",class:"act"},"Board"), h("a",{href:"#appx",class:"act"},"Appendices"));
+}
+function refresh(){
+  const plays=DATA.acts.flatMap(a=>a.plays).filter(p=>p.mode==="both"||p.mode===state.mode);
+  const n=plays.filter(p=>state.done[p.id]).length;
+  document.getElementById("prog").textContent=n+" of "+plays.length+" plays done";
+  document.querySelectorAll("#nav a").forEach(a=>{const id=(a.getAttribute("href")||"").replace("#p-","");if(a.getAttribute("href").startsWith("#p-"))a.classList.toggle("done",!!state.done[id])});
+}
+
+/* ---------- board ---------- */
+const FLOW=[ // state -> [stage css, stage name, action label, next state]
+  ["todo","st-your","your move: pack","I ran pack","packed"],
+  ["packed","st-your","your move: paste","I pasted it","pasted"],
+  ["pasted","st-wait","waiting for the chat","Reply copied","applying"],
+  ["applying","st-apply","your move: apply","Applied, all green","done"],
+  ["done","st-closed","closed","",""],
+  ["blocked","st-block","blocked: needs a decision","Unblock","packed"]];
+const stateOf=id=>state.slices[id]||"todo";
+function boardRender(){
+  const box=document.getElementById("boardbox"); box.replaceChildren();
+  const sl=Object.fromEntries(DATA.slices.map(s=>[s.id,s]));
+  const ready=s=>s.depends.every(d=>stateOf(d)==="done");
+  const open=DATA.slices.filter(s=>stateOf(s.id)!=="done");
+  const counts={}; DATA.slices.forEach(s=>{const st=stateOf(s.id); const label= st==="todo"&&!ready(s)? "locked (waiting for dependencies)" : FLOW.find(x=>x[0]===st)[2]; counts[label]=(counts[label]||0)+1});
+  const nextUp=DATA.slices.filter(s=>stateOf(s.id)==="todo"&&ready(s));
+  const mine=DATA.slices.filter(s=>["packed","applying"].includes(stateOf(s.id)));
+  box.add(h("div",{class:"next"}, h("b",{},"Your move: "),
+    mine.length? mine.map(s=>s.id+" ("+FLOW.find(x=>x[0]===stateOf(s.id))[2].replace("your move: ","")+") ").join(" · ")
+      : nextUp.length? "open "+nextUp.length+" chat"+(nextUp.length>1?"s":"")+" at once: "+nextUp.map(s=>s.id+" → "+s.chat).join(", ")
+      : (open.length? "waiting for the chats you pasted into" : "all slices applied: run the final gates"),
+    nextUp.length? h("div",{}, nextUp.map(s=>cmdBlock(s.id+" · chat "+s.chat, "relay pack "+s.id+" --chat "+s.chat))) : null));
+  box.add(h("p",{class:"goal"}, Object.entries(counts).map(([k,v])=>v+" "+k).join(" · ")));
+  for (const wave of DATA.waves){
+    box.add(h("div",{class:"wave"}, "Wave "+wave.id+" — "+wave.title+(wave.id==="E"?" (through chatop, not the kernel)":"")));
+    const grid=h("div",{class:"board"}); box.add(grid);
+    for (const id of wave.slices){
+      const s=sl[id], st=stateOf(id), f=FLOW.find(x=>x[0]===st), ok=ready(s)||st!=="todo";
+      const btn= f[3]? h("button",{class:"b"+(ok?" pri":""),disabled:!ok,onclick:()=>{state.slices[id]=f[4];save();boardRender()}},f[3]) : null;
+      const blk= st!=="done"&&st!=="todo"&&st!=="blocked"? h("button",{class:"b",onclick:()=>{state.slices[id]="blocked";save();boardRender()}},"Blocked") : null;
+      const back= st!=="todo"? h("button",{class:"b",title:"Reset this slice",onclick:()=>{state.slices[id]="todo";save();boardRender()}},"Reset"):null;
+      grid.add(h("div",{class:"sl "+(ok?(st==="todo"?"ready":""):"locked")},
+        h("h4",{},id+" · "+s.title), h("div",{}, h("span",{class:"stage "+f[1]},f[2]), " ", h("span",{class:"chip"},"chat "+s.chat)),
+        h("div",{class:"goal"}, "depends: "+(s.depends.join(", ")||"none")+(ok?"":" (locked)")),
+        h("details",{}, h("summary",{},"goal and acceptance"), h("p",{},fmt(s.goal)), h("p",{class:"ok"},fmt("accept: "+s.acceptance)), h("p",{class:"goal"},"touches: "+s.touches.join(", "))),
+        h("div",{}, btn," ",blk," ",back)));
+    }
+    if (wave.gate) box.add(h("div",{class:"goal"},"Gate: "+wave.gate));
+  }
+}
+
+/* ---------- appendices ---------- */
+function appendices(){
+  const box=document.getElementById("appendices"); box.replaceChildren();
+  // A artifacts
+  const art=h("div",{class:"card",id:"artifacts"}, h("h3",{},"Artifacts (the kit)"), h("p",{class:"goal"},"All of these are in the zip; copy or download single files here. Paths are relative to the repo root."));
+  art.add(h("p",{}, h("button",{class:"b pri",onclick:downloadKit},"Download kit (.zip)")," unzip it in the new repo: ",h("code",{},"unzip -o ~/Downloads/chatop-bootstrap-kit.zip")));
+  const tb=h("table",{}, h("tr",{}, h("th",{},"File"),h("th",{},"Role"),h("th",{},"Size"),h("th",{},""))); art.add(tb);
+  for (const k of DATA.kit){
+    tb.add(h("tr",{}, h("td",{},h("code",{},k.zip_path)), h("td",{},k.role), h("td",{},(k.text.length/1024).toFixed(1)+" KiB"),
+      h("td",{}, h("button",{class:"b",onclick:e=>copyText(k.text,e.target)},"Copy")," ", h("button",{class:"b",onclick:()=>download(k.zip_path.split("/").pop(),k.text)},"Download"))));
+  }
+  box.add(art);
+  // B failures
+  const fb=h("div",{class:"card",id:"failures"}, h("h3",{},"B. Failure guide"));
+  const ft=h("table",{}, h("tr",{}, h("th",{},"What went wrong"),h("th",{},"What you see"),h("th",{},"What to do"))); fb.add(ft);
+  DATA.failures.forEach((f,i)=>ft.add(h("tr",{}, h("td",{},(i+1)+". "+f[0]),h("td",{},fmt(f[1])),h("td",{},fmt(f[2])))));
+  box.add(fb);
+  // C roster
+  const rb=h("div",{class:"card"}, h("h3",{},"C. Chat roster and hygiene"));
+  const rt=h("table",{}, h("tr",{}, h("th",{},"Chat"),h("th",{},"Slice"),h("th",{},"Wave"),h("th",{},"Tab title"))); rb.add(rt);
+  DATA.slices.forEach(s=>rt.add(h("tr",{}, h("td",{},h("code",{},s.chat)),h("td",{},s.id),h("td",{},s.wave),h("td",{},s.chat+" · "+s.id+" "+s.title.toLowerCase()))));
+  rb.add(h("ul",{class:"tight"},
+    h("li",{},"One slice, one tab. Repairs go to the same tab; a new slice never reuses a tab."),
+    h("li",{},"Always paste the whole packet as the first message. Do not paraphrase it."),
+    h("li",{},"Copy replies with the chat's copy-code-block button, never by selecting text."),
+    h("li",{},"Never edit generated files by hand between applies; ask the chat, so the next packet matches the file."),
+    h("li",{},"Commit messages come from the reply's summary: ",h("code",{},"git log --oneline")," is your audit trail."),
+    h("li",{},"Look at ",h("code",{},"git show --stat")," after each apply; a test file you did not expect is a warning.")));
+  box.add(rb);
+  // D budget
+  const bb=h("div",{class:"card"}, h("h3",{},"D. Turn and time budget (estimates, not measurements)"));
+  const bt=h("table",{}, h("tr",{}, h("th",{},"Phase"),h("th",{},"Covers"),h("th",{},"Pastes"),h("th",{},"Wall clock"))); bb.add(bt);
+  DATA.budget.forEach(r=>bt.add(h("tr",{}, r.map(x=>h("td",{},x)))));
+  bb.add(h("p",{class:"goal"},"A paste is one packet out and one reply back. Waves with several chats overlap in wall clock; the pastes still add up."));
+  box.add(bb);
+  // E unverified
+  const ub=h("div",{class:"card",id:"unverified"}, h("h3",{},"E. What is not verified"), h("ul",{class:"unv"}, DATA.unverified.map(x=>h("li",{},x))));
+  box.add(ub);
+  document.getElementById("unv-link").add("Read first: ",h("a",{href:"#unverified"},"what this page does not prove"),".");
+}
+
+/* ---------- boot ---------- */
+function setMode(m){state.mode=m;save();
+  document.getElementById("m-seeded").setAttribute("aria-pressed",m==="seeded");
+  document.getElementById("m-purist").setAttribute("aria-pressed",m==="purist");
+  renderActs();refresh();}
+document.getElementById("m-seeded").addEventListener("click",()=>setMode("seeded"));
+document.getElementById("m-purist").addEventListener("click",()=>setMode("purist"));
+document.getElementById("kitbtn").addEventListener("click",downloadKit);
+appendices(); boardRender(); setMode(state.mode);
+window.__plays={makeZip,kitFiles,crc32,state};
+</script>
+</body>
+</html>

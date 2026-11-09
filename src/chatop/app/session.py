@@ -6,19 +6,26 @@ One human turn = build_packet() -> [human pastes to chat, copies reply] -> apply
 from __future__ import annotations
 
 import copy
-from dataclasses import dataclass, field
-from importlib import resources
+import threading
+from collections.abc import Callable
 from pathlib import Path
-from string import Template
 from typing import Any
 
 from chatop.app.config import Config
+from chatop.app.lanes import Assignment, LaneEngine, Route
+from chatop.app.prompts import PHASE_DOCS, TRACK_NOTES, template
 from chatop.app.recon import build_recon, detect_checks, fence, list_files, source_files
+from chatop.app.results import ApplyResult as ApplyResult
+from chatop.app.results import PacketResult as PacketResult
+from chatop.app.results import SessionError as SessionError
 from chatop.app.workspace import Workspace
 from chatop.domain.changes import FileChange, plan_changes
-from chatop.domain.models import Phase, Question, Slice, State, Status, Track
+from chatop.domain.models import Need, Phase, Question, Slice, State, Status, Track
 from chatop.domain.packet import Section, assemble, estimate_tokens
+from chatop.domain.preflight import Diagnostic, check_all, parse_tool_output, render_command, select_files
 from chatop.domain.reply import Reply, contains_envelope, infer_role, parse_reply
+from chatop.domain.scheduler import graph_errors, width
+from chatop.domain.tdd import judge_slice
 from chatop.domain.workflow import (
     AUTO_ADVANCE,
     WorkflowError,
@@ -31,77 +38,16 @@ from chatop.ports import Clipboard, CodeIndex, RunResult, SymbolHit, Vcs
 from chatop.ports import Runner as RunnerPort
 
 
-class SessionError(Exception):
-    pass
-
-
-@dataclass
-class PacketResult:
-    turn: int
-    text: str
-    tokens: int
-    notes: list[str]
-    path: Path
-    copied: bool
-
-
-@dataclass
-class ApplyResult:
-    ok: bool
-    errors: list[str] = field(default_factory=list)
-    changes: list[str] = field(default_factory=list)
-    checks: list[RunResult] = field(default_factory=list)
-    red_ok: bool | None = None
-    slice_done: bool = False
-    messages: list[str] = field(default_factory=list)
-    repair_prompt: str | None = None
-    next_packet: PacketResult | None = None
-    status: str = ""
-
-
-PHASE_DOCS: dict[Phase, list[tuple[str, int]]] = {
-    Phase.IDEA: [],
-    Phase.REFINE: [("docs/IDEA.md", 1), ("docs/REFINEMENT.md", 1), ("docs/FEATURE.md", 1), ("docs/AS-BUILT.md", 4)],
-    Phase.PRD: [("docs/REFINEMENT.md", 1), ("docs/IDEA.md", 3)],
-    Phase.SPEC: [("docs/PRD.md", 1), ("docs/REFINEMENT.md", 3), ("docs/AS-BUILT.md", 2)],
-    Phase.PLAN: [
-        ("docs/SPEC.md", 1),
-        ("docs/PRD.md", 2),
-        ("docs/FEATURE.md", 1),
-        ("docs/AUDIT.md", 1),
-        ("docs/AS-BUILT.md", 3),
-        ("docs/PLAN.md", 4),
-    ],
-    Phase.SLICE: [("docs/PRD.md", 3), ("docs/FEATURE.md", 3), ("docs/SPEC.md", 4), ("docs/PLAN.md", 5)],
-    Phase.FEATURE: [("docs/AS-BUILT.md", 2), ("docs/SPEC.md", 2), ("docs/PRD.md", 3)],
-    Phase.DELTA: [("docs/FEATURE.md", 1), ("docs/SPEC.md", 1), ("docs/PRD.md", 2), ("docs/AS-BUILT.md", 2)],
-    Phase.RECON: [],
-    Phase.AUDIT: [("docs/AS-BUILT.md", 1)],
-    Phase.DONE: [],
-}
-TRACK_NOTES: dict[tuple[Track, Phase], str] = {
-    (Track.NEW, Phase.PLAN): "- S0 is the walking skeleton: layout, dependency manifest, `.gitignore`, working check "
-    "commands, one passing smoke test.",
-    (Track.CONTINUE, Phase.PLAN): "- Slices implement `docs/FEATURE.md` only. Use IDs that do not collide with "
-    "existing slices (for example F2-S1). Existing done slices are listed in *State*.",
-    (Track.AUDIT, Phase.PLAN): "- This is a STABILISATION plan derived from `docs/AUDIT.md`. The first slices add "
-    "characterization tests that pin current behavior around the riskiest hotspots (expected to PASS immediately). "
-    "Then fix critical findings, one slice each. Never refactor untested code.",
-    (Track.ADOPT, Phase.RECON): "This phase advances automatically. Next, the human adds features with "
-    "`chatop feature`.",
-    (Track.AUDIT, Phase.RECON): "This phase advances automatically to AUDIT. Note where quality looks weak.",
-}
-
-
-def _template(name: str) -> Template:
-    return Template(resources.files("chatop.prompts").joinpath(f"{name}.md").read_text(encoding="utf-8"))
-
-
 class Session:
     def __init__(self, ws: Workspace, index: CodeIndex, clipboard: Clipboard, runner: RunnerPort, vcs: Vcs) -> None:
         self.ws, self.index, self.clipboard, self.runner, self.vcs = ws, index, clipboard, runner, vcs
         self._state: State | None = None
         self._config: Config | None = None
+        # _apply_lock serialises everything that touches the working tree (apply, packet building);
+        # _state_lock guards short state mutations so the UI can poll the board while an apply runs checks.
+        self._apply_lock = threading.RLock()
+        self._state_lock = threading.RLock()
+        self.lanes = LaneEngine(self)
 
     # ------------------------------------------------------------------ state helpers
     @property
@@ -170,7 +116,10 @@ class Session:
         return state
 
     # ------------------------------------------------------------------ human inputs
-    def answer(self, qid: str, choices: list[str], other: str = "") -> None:
+    def answer(self, qid: str, choices: list[str], other: str = "", chat: str | None = None) -> None:
+        if chat is not None or self.in_lane_mode():
+            self.lanes.answer(qid, choices, other, chat)
+            return
         st = self.state
         q = next((q for q in st.questions if q.id == qid), None)
         if q is None:
@@ -178,7 +127,10 @@ class Session:
         q.answer, q.other = choices, other
         self._after_answers(st)
 
-    def accept_recommended(self) -> None:
+    def accept_recommended(self, chat: str | None = None) -> None:
+        if chat is not None or self.in_lane_mode():
+            self.lanes.accept_recommended(chat)
+            return
         st = self.state
         for q in st.questions:
             if not q.answered:
@@ -196,13 +148,15 @@ class Session:
             raise SessionError(f"nothing to approve (status: {st.status})")
         self.accept_checks()
         try:
-            nxt = advance(st)
+            nxt = advance(st, activate=not self.parallel_enabled())
         except WorkflowError as exc:
             raise SessionError(str(exc)) from exc
         nxt.human_note = note
         self._save(nxt)
         self.ws.journal({"event": "approve", "phase": st.phase.value, "note": note})
-        return nxt
+        if self._needs_dispatch(nxt):
+            self.dispatch()
+        return self.state
 
     def reject(self, note: str) -> State:
         st = self.state
@@ -236,7 +190,9 @@ class Session:
         return nxt
 
     # ------------------------------------------------------------------ outbound packet
-    def build_packet(self, copy_to_clipboard: bool = True) -> PacketResult:
+    def build_packet(self, copy_to_clipboard: bool = True, chat: str | None = None, full: bool = False) -> PacketResult:
+        if chat is not None or self.in_lane_mode():
+            return self.lanes.packet(chat, copy_to_clipboard, full)
         st = self.state
         if st.status == Status.AWAITING_ANSWERS:
             raise SessionError("answer the pending questions first (chatop answer / chatop accept)")
@@ -272,6 +228,7 @@ class Session:
             "round": st.refine_round + 1,
             "brief": "FEATURE.md" if st.track == Track.CONTINUE else "REFINEMENT.md",
             "track_notes": TRACK_NOTES.get((st.track, st.phase), ""),
+            "header": f"<<<CHATOP turn={st.turn}>>>",
         }
         cur = st.slice(st.current_slice)
         if cur is not None:
@@ -287,9 +244,9 @@ class Session:
                 else "",
             }
         secs = [
-            Section("Role and rules", _template("system").safe_substitute(common), 0),
-            Section(f"Your task: {st.phase.value.upper()}", _template(st.phase.value).safe_substitute(common), 0),
-            Section("Reply contract", _template("contract").safe_substitute(common), 0),
+            Section("Role and rules", template("system").safe_substitute(common), 0),
+            Section(f"Your task: {st.phase.value.upper()}", template(st.phase.value).safe_substitute(common), 0),
+            Section("Reply contract", template("contract").safe_substitute(common), 0),
             Section("State", self._state_digest(st), 0),
             Section("Human input", self._human_input(st), 0),
             Section("Evidence (from chatop's last run)", st.evidence, 1),
@@ -303,7 +260,7 @@ class Session:
             if text:
                 secs.append(Section(f"Doc: {doc}", fence(text, "markdown"), prio))
         if st.needs:
-            secs.append(Section("Requested context (your @@need lines)", self._resolve_needs(st), 1))
+            secs.append(Section("Requested context (your @@need lines)", self._resolve_needs(st.needs), 1))
         if st.phase == Phase.SLICE and cur is not None:
             secs.append(Section(f"Code context for {cur.id}", self._slice_context(cur), 2))
         if st.phase in (Phase.FEATURE, Phase.PLAN, Phase.SPEC, Phase.DELTA, Phase.SLICE):
@@ -355,8 +312,10 @@ class Session:
         body = "\n".join(lines[start - 1 : end])
         return f"`{hit.file}:{hit.line}-{hit.end_line or end}` ({hit.kind} {hit.name})\n{fence(body)}"
 
-    def _file_block(self, rel: str, cap_lines: int | None = None) -> str:
-        text = self.ws.read(rel)
+    def _file_block(
+        self, rel: str, cap_lines: int | None = None, read: Callable[[str], str | None] | None = None
+    ) -> str:
+        text = (read or self.ws.read)(rel)
         if text is None:
             return f"`{rel}`: (does not exist yet)"
         cap = cap_lines or self.config.max_file_lines
@@ -367,12 +326,12 @@ class Session:
             )
         return f"`{rel}`\n{fence(text)}"
 
-    def _resolve_needs(self, st: State) -> str:
+    def _resolve_needs(self, needs: list[Need], read: Callable[[str], str | None] | None = None) -> str:
         out: list[str] = []
-        for need in st.needs[:25]:
+        for need in needs[:25]:
             t = need.target
             if need.kind == "file":
-                out.append(self._file_block(t, cap_lines=1500))
+                out.append(self._file_block(t, cap_lines=1500, read=read))
             elif need.kind == "symbol":
                 hits = self.index.query(t, limit=5)
                 out.append("\n\n".join(self._snippet(h) for h in hits) or f"symbol `{t}`: no match in code graph")
@@ -389,26 +348,41 @@ class Session:
                 out.append(f"tests affected by `{t}`:\n" + "\n".join(f"- {f}" for f in self.index.affected([t])))
         return "\n\n".join(out)
 
-    def _slice_context(self, sl: Slice) -> str:
-        out: list[str] = [f"Slice `{sl.id}` touches: {', '.join(sl.touches) or '(unspecified)'}"]
+    def _slice_items(self, sl: Slice, read: Callable[[str], str | None] | None = None) -> dict[str, str]:
+        """Code context for an issue as keyed items (``file:<path>`` / ``symbol:<name>``), so delta packets can
+        skip the ones a chat already holds."""
+        out: dict[str, str] = {}
         paths = [t for t in sl.touches if "/" in t or "." in Path(t).name]
         symbols = [t for t in sl.touches if t not in paths]
         for p in paths:
-            out.append(self._file_block(p))
+            out[f"file:{p}"] = self._file_block(p, read=read)
         for sym in symbols:
             hits = self.index.query(sym, limit=3)
-            out += [self._snippet(h) for h in hits]
+            parts = [self._snippet(h) for h in hits]
             callers = self.index.callers(sym, 15)
             if callers:
-                out.append(f"callers of `{sym}`: " + ", ".join(f"{h.name} ({h.file}:{h.line})" for h in callers))
-        existing = [p for p in paths if self.ws.read(p) is not None]
+                parts.append(f"callers of `{sym}`: " + ", ".join(f"{h.name} ({h.file}:{h.line})" for h in callers))
+            if parts:
+                out[f"symbol:{sym}"] = "\n\n".join(parts)
+        rd = read or self.ws.read
+        existing = [p for p in paths if rd(p) is not None]
         for test in self.index.affected(existing)[:5]:
             if test not in paths:
-                out.append("Affected test: " + self._file_block(test))
-        return "\n\n".join(out)
+                out[f"file:{test}"] = "Affected test: " + self._file_block(test, read=read)
+        return out
+
+    def _slice_context(self, sl: Slice) -> str:
+        head = f"Slice `{sl.id}` touches: {', '.join(sl.touches) or '(unspecified)'}"
+        return "\n\n".join([head, *self._slice_items(sl).values()])
 
     # ------------------------------------------------------------------ inbound reply
     def apply(self, text: str, force: bool = False) -> ApplyResult:
+        if self.in_lane_mode():
+            return self.lanes.apply(text, force)
+        with self._apply_lock:
+            return self._apply_serial(text, force)
+
+    def _apply_serial(self, text: str, force: bool) -> ApplyResult:
         st = self.state
         reply = parse_reply(text)
         errors = list(reply.errors)
@@ -418,6 +392,7 @@ class Session:
             errors.insert(0, f"reply is for turn {reply.turn} but chatop is on turn {st.turn} (stale paste?)")
         changes, change_errors = plan_changes(reply, self.ws.read, self.config.protected)
         errors += change_errors
+        errors += self._syntax_errors(changes)  # every file at once, not one error per round trip
         if errors:
             return self._reject(st, text, errors)
 
@@ -426,16 +401,13 @@ class Session:
         undo: dict[str, Any] = {"turn": st.turn, "state": before.to_dict(), "files": {}, "commit": None}
         result = ApplyResult(ok=True)
         tests = [c for c in changes if c.role == "test"]
-        rest = [c for c in changes if c.role != "test"]
-        code_changes = [c for c in rest if c.role == "code"]
+        code_changes = [c for c in changes if c.role == "code"]
 
-        if st.phase == Phase.SLICE and tests and code_changes and "test" in self.config.checks:
-            self._write(tests, undo, result)
-            red = self.runner.run("test", self.config.checks["test"], self.ws.root, self.config.check_timeout)
-            result.red_ok = red.code != 0
-            self._write(rest, undo, result)
-        else:
-            self._write(changes, undo, result)
+        stage_errors, result.red_ok = self._stage(
+            changes, undo, result, tdd_red=st.phase == Phase.SLICE and bool(tests and code_changes)
+        )
+        if stage_errors:
+            return self._reject(st, text, stage_errors)
         if changes and self.index.available():
             self.index.ensure_index()
 
@@ -447,9 +419,7 @@ class Session:
         st.needs = reply.needs
         st.human_note = ""
         if reply.slices is not None:
-            slice_err = self._merge_slices(st, reply.slices)
-            if slice_err:
-                result.messages.append(slice_err)
+            result.messages += self._merge_slices(st, reply.slices)
 
         if st.phase == Phase.SLICE:
             st = self._finish_slice(st, reply, tests, code_changes, result, undo)
@@ -481,9 +451,59 @@ class Session:
                 "LLM proposed checks (accept with `chatop checks --accept`): "
                 + "; ".join(f"{k} = {v}" for k, v in st.proposed_checks.items())
             )
+        if self._needs_dispatch(st) and self.config.auto_dispatch:
+            self.dispatch()
+            st = self.state
         if st.status == Status.READY and self.config.auto_next:
             result.next_packet = self.build_packet()
         return result
+
+    def _syntax_errors(self, changes: list[FileChange]) -> list[str]:
+        """Built-in lint (pure) over the final content of every changed file."""
+        diags = check_all({c.path: c.after for c in changes})
+        return [f"syntax error in {d.render()}" for d in diags]
+
+    def _external_preflight(self, changes: list[FileChange]) -> list[Diagnostic]:
+        """Run each configured linter ONCE over all matching changed files (files are already on disk)."""
+        paths = [c.path for c in changes if c.after is not None]
+        found: list[Diagnostic] = []
+        for pattern, tool in self.config.preflight.items():
+            files = select_files(pattern, paths)
+            if not files:
+                continue
+            run = self.runner.run("preflight", render_command(tool, files), self.ws.root, self.config.check_timeout)
+            if run.code != 0:
+                found += parse_tool_output(run.output, pattern) or [
+                    Diagnostic(f"({pattern})", None, None, f"linter exited with code {run.code}", pattern)
+                ]
+        return found
+
+    def _revert(self, changes: list[FileChange]) -> None:
+        for c in changes:
+            self.ws.write(c.path, c.before)
+
+    def _stage(
+        self, changes: list[FileChange], undo: dict[str, Any], result: ApplyResult, tdd_red: bool
+    ) -> tuple[list[str], bool | None]:
+        """Write everything, lint everything in one shot, then (slices) prove RED with the code held back.
+
+        Returns (errors, red_ok). On errors every file is already restored.
+        """
+        self._write(changes, undo, result)
+        lint = self._external_preflight(changes)
+        if lint:
+            self._revert(changes)
+            result.changes.clear()
+            return [f"preflight {d.render()}" for d in lint], None
+        red_ok: bool | None = None
+        code = [c for c in changes if c.role == "code"]
+        if tdd_red and "test" in self.config.checks:
+            self._revert(code)  # tests alone: they must fail without the implementation
+            red = self.runner.run("test", self.config.checks["test"], self.ws.root, self.config.check_timeout)
+            red_ok = red.code != 0
+            for c in code:
+                self.ws.write(c.path, c.after)
+        return [], red_ok
 
     def _write(self, changes: list[FileChange], undo: dict[str, Any], result: ApplyResult) -> None:
         for c in changes:
@@ -492,14 +512,23 @@ class Session:
             flag = "D" if c.after is None else "A" if c.before is None else "M"
             result.changes.append(f"{flag} {c.path} [{c.role}]")
 
-    def _merge_slices(self, st: State, new: list[Slice]) -> str:
+    def _merge_slices(self, st: State, new: list[Slice]) -> list[str]:
         done = [s for s in st.slices if s.status == "done"]
         ids = [s.id for s in done] + [s.id for s in new]
         if len(set(ids)) != len(ids):
             dup = sorted({i for i in ids if ids.count(i) > 1})
-            return f"slice ids collide with existing ones: {dup}; slices were NOT updated"
+            return [f"slice ids collide with existing ones: {dup}; slices were NOT updated"]
+        problems = graph_errors(done + new)
+        if problems:
+            return ["; ".join(problems) + "; slices were NOT updated. Ask the LLM to fix `depends`."]
         st.slices = done + new
-        return ""
+        w = width(new)
+        if w > self.config.max_parallel:
+            return [
+                f"this plan lets {w} issues run in parallel (in separate chats); max_parallel is "
+                f"{self.config.max_parallel}. Raise it with `chatop config --set max_parallel {w}` to use them."
+            ]
+        return []
 
     def _finish_slice(
         self,
@@ -512,26 +541,19 @@ class Session:
     ) -> State:
         cur = st.slice(st.current_slice)
         result.checks = self._run_checks(list(self.config.checks))
-        notes: list[str] = []
-        all_green = bool(result.checks) and all(c.code == 0 for c in result.checks)
-        strict = self.config.tdd_strict and st.track != Track.AUDIT
-        if result.red_ok is False:
-            notes.append(
-                "RED not proven: the new tests already passed before the implementation was applied. "
-                "Strengthen the tests so they fail without the change, or add @@advance if this slice "
-                "only pins existing behavior."
-            )
-        if not result.checks:
-            notes.append("No checks configured, so the slice cannot be verified. Propose them with @@check.")
-        if result.red_ok and cur is not None:
+        verdict = judge_slice(
+            strict=self.config.tdd_strict and st.track != Track.AUDIT,
+            red_ok=result.red_ok,
+            red_already=cur is not None and cur.red_proven,
+            check_codes=[c.code for c in result.checks],
+            has_tests=bool(tests),
+            has_code=bool(code),
+            advance=reply.advance,
+            touched=bool(tests or code or reply.writes or reply.edits),
+        )
+        if cur is not None and verdict.red_proven:
             cur.red_proven = True
-        tdd_ok = result.red_ok is not False or reply.advance or not strict
-        red_known = cur is not None and cur.red_proven
-        if strict and code and not tests and not reply.advance and not red_known:
-            tdd_ok = False
-            notes.append("Code changed without tests. Add @@test files, or @@advance for a pure refactor.")
-        touched = bool(tests or code or reply.writes or reply.edits)
-        if touched and all_green and tdd_ok:
+        if verdict.done:
             sha = None
             if self.config.auto_commit and cur is not None:
                 sha = self.vcs.commit_all(f"chatop({cur.id}): {cur.title}\n\n{reply.summary}")
@@ -540,9 +562,9 @@ class Session:
             result.messages.append(f"slice {st.current_slice} complete" + (f", committed {sha}" if sha else ""))
             st.evidence = self._format_checks(result.checks, only_failures=True)
             return complete_slice(st)
-        if cur is not None and touched:
+        if cur is not None and bool(tests or code or reply.writes or reply.edits):
             cur.attempts += 1
-        st.evidence = "\n\n".join([*notes, self._format_checks(result.checks)])
+        st.evidence = "\n\n".join([*verdict.notes, self._format_checks(result.checks)])
         st.status = Status.AWAITING_ANSWERS if any(not q.answered for q in st.questions) else Status.READY
         return st
 
@@ -560,7 +582,7 @@ class Session:
             return st
         if reply.advance or st.phase in AUTO_ADVANCE:
             try:
-                return request_advance(st, {Phase(g) for g in self.config.gates})
+                return request_advance(st, {Phase(g) for g in self.config.gates}, activate=not self.parallel_enabled())
             except WorkflowError as exc:
                 result.messages.append(str(exc))
         if st.phase == Phase.REFINE:
@@ -610,6 +632,8 @@ class Session:
 
     # ------------------------------------------------------------------ undo / watch / doctor / status
     def undo(self) -> list[str]:
+        if self.state.chats:
+            raise SessionError("undo is not available once parallel chats are in use; use `git revert` on the commit")
         data = self.ws.pop_undo()
         if data is None:
             raise SessionError("nothing to undo")
@@ -630,6 +654,14 @@ class Session:
             return last_seen, None
         turn = contains_envelope(text)
         st = self.state
+        if self.in_lane_mode():
+            if turn is None:
+                return text, None
+            route = self.route(text)
+            chat = st.chat(route.chat) if route.ok else None
+            if chat is None or chat.status.value != "awaiting_reply" or turn not in (chat.turn, -1):
+                return text, None
+            return text, self.apply(text)
         if turn is None or st.status != Status.AWAITING_REPLY or turn not in (st.turn, -1):
             return text, None
         return text, self.apply(text)
@@ -644,7 +676,14 @@ class Session:
             Status.AWAITING_APPROVAL: f"review docs for {st.phase.value}, then `chatop approve` or `chatop reject`",
             Status.DONE: 'done. Next: `chatop feature "..."`',
         }[st.status]
+        board = self.lanes.board() if self.parallel_enabled() or st.chats else None
+        if board is not None and self.in_lane_mode():
+            hint = board["hint"]
         return {
+            "mode": "parallel" if board is not None else "serial",
+            "chats": board["chats"] if board is not None else [],
+            "event_seq": st.event_seq,
+            "max_parallel": self.config.max_parallel,
             "project": self.ws.root.name,
             "track": st.track.value,
             "phase": st.phase.value,
@@ -691,5 +730,54 @@ class Session:
             ),
         ]
 
-    def pending_questions(self) -> list[Question]:
+    def pending_questions(self, chat: str | None = None) -> list[Question]:
+        if chat is not None or self.in_lane_mode():
+            return self.lanes.pending_questions(chat)
         return [q for q in self.state.questions if not q.answered]
+
+    # ------------------------------------------------------------------ parallel relay (delegated to the lane engine)
+    def parallel_enabled(self) -> bool:
+        """New plans are dispatched to chats (instead of one serial slice) when parallelism is on."""
+        return self.config.max_parallel > 1 and self.config.auto_commit
+
+    def in_lane_mode(self) -> bool:
+        st = self.state
+        return st.phase == Phase.SLICE and st.current_slice is None
+
+    def _needs_dispatch(self, st: State) -> bool:
+        return st.phase == Phase.SLICE and st.current_slice is None and st.status == Status.READY and bool(st.slices)
+
+    def dispatch(self) -> list[Assignment]:
+        return self.lanes.dispatch()
+
+    def assign(self, issue: str, chat: str | None = None) -> Assignment:
+        return self.lanes.assign(issue, chat)
+
+    def next_up(self) -> str | None:
+        return self.lanes.next_up()
+
+    def route(self, text: str) -> Route:
+        return self.lanes.route(text)
+
+    def board(self) -> dict[str, Any]:
+        return self.lanes.board()
+
+    def events_since(self, seq: int) -> list[dict[str, Any]]:
+        return self.lanes.events_since(seq)
+
+    def reset_chat(self, chat: str) -> None:
+        self.lanes.reset_chat(chat)
+
+    def mark_sent(self, chat: str, sent: bool = True) -> None:
+        self.lanes.mark_sent(chat, sent)
+
+    def configure(self, key: str, value: str) -> dict[str, Any]:
+        """Change a scalar option (max_parallel, max_attempts, ...) from a UI."""
+        try:
+            self.config.set_option(key, value)
+        except KeyError as exc:
+            raise SessionError(f"unknown or non-scalar option: {key}") from exc
+        except ValueError as exc:
+            raise SessionError(str(exc)) from exc
+        self.ws.save_config(self.config)
+        return {key: getattr(self.config, key)}

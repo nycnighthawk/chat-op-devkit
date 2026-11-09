@@ -1,0 +1,52 @@
+# LAB 5: PARALLEL RELAY, several chats at once (track: new, max_parallel 3)
+# You relay between chat windows; chatop decides which issue goes to which chat, builds full packets for new
+# chats and small delta packets for continuing ones, routes every pasted reply by its header, lints all generated
+# files in one shot, and keeps one chat's failing code out of every other chat's checks.
+# With a real LLM: open one browser tab per chat chatop names. Paste packets into the tab named in the header.
+
+chatop init --track new --parallel 3 --idea "Small CLI that turns CSV files into Markdown tables for READMEs"
+chatop next
+reply 01-idea.md
+chatop accept
+chatop next
+reply 02-refine.md
+chatop next
+reply 03-prd.md
+chatop approve
+chatop next
+reply 04-spec.md
+chatop approve
+chatop next
+reply 05-plan.md
+# Approving the plan turns it into issues. Only S0 is ready: S1 and S2 wait for it.
+chatop approve
+expect phase=slice mode=parallel
+expect-chat c1 status=queued issue=S0 kind=full
+chatop board
+chatop next
+reply 06-s0-skeleton.md
+# S0 is done and committed. S1 and S2 do not depend on each other and touch different files, so chatop opened two
+# new chats (full packets) at once. One packet is already on your clipboard; fetch the other for the second tab.
+expect-chat c2 issue=S1
+expect-chat c3 issue=S2
+chatop next c3
+# Chat c2 answers first, with a failing test (a pipe is not escaped). It is held back, NOT written to the tree.
+reply 07-s1-convert-bug.md
+expect-chat c2 status=ready
+# Chat c3 answers with TWO syntax errors in two files: both are reported in ONE rejection (one repair prompt).
+reply-rejected 08-s2-syntax.md
+expect-output 2 problems
+# The corrected reply passes and is committed although c2's failing test exists: lanes are isolated.
+reply 09-s2-align.md
+expect-chat c3 status=done
+# c2 gets a DELTA packet: only the failure evidence and what changed, not the SPEC again.
+chatop next c2
+expect-output delta
+reply 10-s1-fix.md
+# S1 and S2 are done, so S3 is unblocked. c2 already holds convert.py, so S3 goes to c2 as a delta packet.
+expect-chat c2 issue=S3 kind=delta
+chatop next c2
+reply 11-s3-cli.md
+expect phase=done status=done
+expect-file src/csv2md/cli.py
+chatop board

@@ -24,6 +24,12 @@ class Config:
     codegraph_bin: str = "codegraph"
     check_timeout: int = 900
     max_file_lines: int = 400
+    max_parallel: int = 1  # chats worked on at once; 1 = the classic serial flow
+    max_attempts: int = 4  # failed attempts before an issue is blocked for a human decision
+    max_issues_per_chat: int = 3  # beyond this, open a fresh chat (long chats drift)
+    auto_dispatch: bool = True  # hand newly unblocked issues to chats as soon as one finishes
+    delta_packets: bool = True  # continuing chats get only what changed
+    preflight: dict[str, str] = field(default_factory=dict)  # glob -> linter command ({files}); see domain.preflight
 
     @classmethod
     def from_toml(cls, text: str) -> Config:
@@ -32,7 +38,23 @@ class Config:
         known = {k: v for k, v in raw.get("chatop", {}).items() if hasattr(base, k)}
         cfg = cls(**{**base.__dict__, **known})
         cfg.checks = {str(k): str(v) for k, v in raw.get("checks", {}).items()}
+        cfg.preflight = {str(k): str(v) for k, v in raw.get("preflight", {}).items()}
         return cfg
+
+    def set_option(self, key: str, value: str) -> None:
+        """Set a scalar option from text (CLI / UI). Raises KeyError for unknown keys, ValueError for bad values."""
+        current = getattr(self, key, None)
+        if key in ("checks", "preflight", "gates", "protected") or not hasattr(self, key):
+            raise KeyError(key)
+        if isinstance(current, bool):
+            new: Any = value.strip().lower() in ("1", "true", "yes", "on")
+        elif isinstance(current, int):
+            new = int(value)
+            if new < 1:
+                raise ValueError(f"{key} must be >= 1")
+        else:
+            new = value
+        setattr(self, key, new)
 
     def to_toml(self) -> str:
         def val(v: Any) -> str:
@@ -40,8 +62,15 @@ class Config:
 
         lines = ["# chatop configuration (human-owned).", "[chatop]"]
         for k, v in self.__dict__.items():
-            if k != "checks":
+            if k not in ("checks", "preflight"):
                 lines.append(f"{k} = {val(v).lower() if isinstance(v, bool) else val(v)}")
         lines += ["", "# Commands chatop runs after applying a reply (test, typecheck, lint, ...).", "[checks]"]
         lines += [f"{k} = {val(v)}" for k, v in self.checks.items()]
+        if self.preflight:
+            lines += [
+                "",
+                "# Linters run on ALL generated files in one shot before tests ({files} = changed files).",
+                "[preflight]",
+            ]
+            lines += [f"{val(k)} = {val(v)}" for k, v in self.preflight.items()]
         return "\n".join(lines) + "\n"

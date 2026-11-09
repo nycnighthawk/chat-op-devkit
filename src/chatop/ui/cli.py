@@ -8,6 +8,7 @@ import sys
 import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import Any
 
 from chatop.app.session import ApplyResult, PacketResult, Session, SessionError
 from chatop.domain.models import Track
@@ -23,19 +24,31 @@ def _default_factory(root: Path) -> Session:
 
 def _print_packet(p: PacketResult) -> None:
     where = "copied to clipboard" if p.copied else f"saved to {p.path} (clipboard unavailable)"
-    print(f"packet turn {p.turn}: ~{p.tokens:,} tokens, {where}")
+    if p.chat:
+        saved = (
+            f" (a full packet would be ~{p.full_tokens:,})" if p.kind == "delta" and p.full_tokens > p.tokens else ""
+        )
+        print(f"packet for chat {p.chat}, turn {p.turn}, {p.kind}: ~{p.tokens:,} tokens{saved}, {where}")
+    else:
+        print(f"packet turn {p.turn}: ~{p.tokens:,} tokens, {where}")
     for n in p.notes:
         print(f"  note: {n}")
-    print("  -> paste it into your chat, then copy the reply and run: chatop apply")
+    if p.chat:
+        print(f"  -> paste it into chat {p.chat}; replies can be pasted back in any order (chatop apply / watch)")
+    else:
+        print("  -> paste it into your chat, then copy the reply and run: chatop apply")
 
 
 def _print_apply(r: ApplyResult, s: Session) -> None:
     if not r.ok:
-        print("REJECTED. Nothing was changed:")
+        n = len(r.errors)
+        print(f"REJECTED. Nothing was changed ({n} problem{'s' if n != 1 else ''}, all reported at once):")
         for e in r.errors:
             print(f"  - {e}")
         print("A repair prompt was copied to the clipboard; paste it in the same chat.")
         return
+    if r.chat:
+        print(f"  routed to chat {r.chat}")
     for change in r.changes:
         print(f"  {change}")
     if r.red_ok is not None:
@@ -57,6 +70,40 @@ def _print_apply(r: ApplyResult, s: Session) -> None:
         print(f"status: {r.status}. {s.status()['hint']}")
 
 
+def _print_board(b: dict[str, Any]) -> None:
+    print(
+        f"mode {b['mode']} · max_parallel {b['max_parallel']} · phase {b['phase']} · "
+        f"tokens sent {b['tokens']['sent']:,}"
+        f" (full packets would be {b['tokens']['full']:,}, saved {b['tokens']['saved']:,})"
+    )
+    for c in b["chats"]:
+        flag = {
+            "send": "SEND",
+            "paste": "PASTE IT",
+            "fix": "FIX",
+            "answer": "ANSWER",
+            "blocked": "BLOCKED",
+            "waiting": "waiting",
+            "applying": "applying",
+            "closed": "closed",
+        }[c["stage"]]
+        print(
+            f"  {c['id']}  {flag:<9} turn {c['turn']:<2} {c['title'] or '(no issue)'}"
+            + (f"  [{c['kind']} packet]" if c["can_send"] else "")
+        )
+    sm = b["summary"]
+    print(
+        f"  your move: {sm['your_move']} · waiting for the LLM: {sm['waiting']} · closed: {sm['closed']} · "
+        f"issues {sm['issues_done']}/{sm['issues_total']}"
+    )
+    for i in b["issues"]:
+        wait = f"  waits for {', '.join(i['waiting_on'])}" if i["waiting_on"] and i["status"] == "todo" else ""
+        print(f"    {i['id']:<8} {i['status']:<8} {i['title']}{wait}")
+    for e in b["events"][-5:]:
+        print(f"  [{e['ts']}] {e['kind']}: {e['text']}")
+    print(f"next: {b['hint']}")
+
+
 def _read_reply(arg: str | None, s: Session) -> str:
     if arg == "-":
         return sys.stdin.read()
@@ -68,15 +115,15 @@ def _read_reply(arg: str | None, s: Session) -> str:
     return text
 
 
-def _interactive_answers(s: Session) -> None:
-    for q in s.pending_questions():
+def _interactive_answers(s: Session, chat: str | None = None) -> None:
+    for q in s.pending_questions(chat):
         print(f"[{q.id}] {q.text}")
         for i, o in enumerate(q.options, 1):
             print(f"  {i}. {o}{'  (recommended)' if o in q.recommended else ''}")
         raw = input("  choice numbers (comma separated, Enter = recommended): ").strip()
         picks = [q.options[int(x) - 1] for x in raw.split(",") if x.strip().isdigit()] if raw else q.recommended
         other = input("  other / extra notes (optional): ").strip()
-        s.answer(q.id, picks, other)
+        s.answer(q.id, picks, other, chat)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -87,9 +134,12 @@ def build_parser() -> argparse.ArgumentParser:
     i.add_argument("--track", choices=[t.value for t in Track if t != Track.CONTINUE])
     i.add_argument("--idea", default="")
     i.add_argument("--idea-file")
+    i.add_argument("--parallel", type=int, metavar="N", help="work N chats at once (default 1 = serial)")
     st = sub.add_parser("status", help="where am I and what next")
     st.add_argument("--json", action="store_true")
     n = sub.add_parser("next", help="build the next packet and copy it to the clipboard")
+    n.add_argument("chat", nargs="?", help="parallel mode: packet for this chat (default: the next one up)")
+    n.add_argument("--full", action="store_true", help="send the full context (fresh browser tab / lost history)")
     n.add_argument("--accept", action="store_true", help="accept recommended answers first")
     n.add_argument("--approve", action="store_true", help="approve the gated phase first")
     n.add_argument("--print", action="store_true", help="also print the packet to stdout")
@@ -103,7 +153,22 @@ def build_parser() -> argparse.ArgumentParser:
     an.add_argument("qid", nargs="?")
     an.add_argument("choices", nargs="*")
     an.add_argument("--other", default="")
-    sub.add_parser("accept", help="accept the recommended answers for all pending questions")
+    an.add_argument("--chat", help="parallel mode: the chat that asked")
+    ac = sub.add_parser("accept", help="accept the recommended answers for all pending questions")
+    ac.add_argument("--chat", help="parallel mode: only this chat's questions")
+    bd = sub.add_parser("board", help="parallel mode: chats, issues, events")
+    bd.add_argument("--json", action="store_true")
+    sub.add_parser("dispatch", help="hand ready issues to chats (opens new chats or reuses free ones)")
+    asg = sub.add_parser("assign", help="give an issue to a free chat (or a new one)")
+    asg.add_argument("issue")
+    asg.add_argument("--chat")
+    rc = sub.add_parser("reset-chat", help="unblock a chat / you opened a fresh tab: next packet is a full one")
+    rc.add_argument("chat")
+    sn = sub.add_parser("sent", help="flag that you pasted a chat's packet (or repair prompt) into its window")
+    sn.add_argument("chat")
+    sn.add_argument("--undo", action="store_true", help="take the flag back")
+    cf = sub.add_parser("config", help="show or change options (max_parallel, max_attempts, ...)")
+    cf.add_argument("--set", nargs=2, metavar=("KEY", "VALUE"))
     ap = sub.add_parser("approve", help="approve a gated phase (also accepts proposed checks)")
     ap.add_argument("--note", default="")
     rj = sub.add_parser("reject", help="send a gated phase back with a note")
@@ -142,6 +207,8 @@ def _dispatch(args: argparse.Namespace, s: Session, root: Path, factory: Session
     if cmd == "init":
         idea = Path(args.idea_file).read_text() if args.idea_file else args.idea
         st = s.init(Track(args.track) if args.track else None, idea)
+        if args.parallel:
+            s.configure("max_parallel", str(args.parallel))
         print(f"initialised: track {st.track.value}, phase {st.phase.value}")
         print(f"checks: {s.config.checks or '(none yet; the LLM will propose them)'}")
         if st.track == Track.NEW and not idea:
@@ -161,13 +228,15 @@ def _dispatch(args: argparse.Namespace, s: Session, root: Path, factory: Session
             done = sum(1 for x in info["slices"] if x["status"] == "done")
             if info["slices"]:
                 print(f"slices: {done}/{len(info['slices'])} done")
+            if info["chats"]:
+                print("chats: " + ", ".join(f"{c['id']} {c['status']}" for c in info["chats"]))
             print(f"next: {info['hint']}")
     elif cmd == "next":
         if args.accept:
             s.accept_recommended()
         if args.approve:
             s.approve()
-        p = s.build_packet(copy_to_clipboard=not args.no_clip)
+        p = s.build_packet(copy_to_clipboard=not args.no_clip, chat=args.chat, full=args.full)
         if args.print:
             print(p.text)
         _print_packet(p)
@@ -179,12 +248,12 @@ def _dispatch(args: argparse.Namespace, s: Session, root: Path, factory: Session
         return _watch(s, args.interval)
     elif cmd == "answer":
         if args.qid:
-            s.answer(args.qid, args.choices, args.other)
+            s.answer(args.qid, args.choices, args.other, args.chat)
         else:
-            _interactive_answers(s)
+            _interactive_answers(s, args.chat)
         print(f"status: {s.state.status.value}. {s.status()['hint']}")
     elif cmd == "accept":
-        s.accept_recommended()
+        s.accept_recommended(args.chat)
         print(f"accepted recommended answers. {s.status()['hint']}")
     elif cmd == "approve":
         st = s.approve(args.note)
@@ -203,6 +272,33 @@ def _dispatch(args: argparse.Namespace, s: Session, root: Path, factory: Session
         if args.unset:
             s.set_check(args.unset, None)
         print(json.dumps({"configured": s.config.checks, "proposed": s.state.proposed_checks}, indent=2))
+    elif cmd == "board":
+        b = s.board()
+        print(json.dumps(b, indent=2, default=str)) if args.json else _print_board(b)
+    elif cmd == "dispatch":
+        out = s.dispatch()
+        for a in out:
+            print(
+                f"issue {a.issue} -> chat {a.chat} "
+                f"({'continues, delta packet' if a.reused else 'new chat, full packet'})"
+            )
+        if not out:
+            print("nothing to dispatch (no free capacity, or nothing is unblocked)")
+        print(f"next: {s.board()['hint']}")
+    elif cmd == "assign":
+        a = s.assign(args.issue, args.chat)
+        print(f"issue {a.issue} -> chat {a.chat}")
+    elif cmd == "reset-chat":
+        s.reset_chat(args.chat)
+        print(f"chat {args.chat} reset: its next packet carries the full context")
+    elif cmd == "sent":
+        s.mark_sent(args.chat, sent=not args.undo)
+        print(f"chat {args.chat}: " + ("waiting for the LLM's reply" if not args.undo else "flag removed"))
+    elif cmd == "config":
+        if args.set:
+            print(json.dumps(s.configure(args.set[0], args.set[1])))
+        else:
+            print(s.config.to_toml())
     elif cmd == "undo":
         print("restored: " + ", ".join(s.undo()))
     elif cmd == "doctor":

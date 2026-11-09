@@ -10,7 +10,7 @@ from typing import Any
 from chatop.app.config import Config
 from chatop.domain.models import State
 
-GITIGNORE = "packets/\nreplies/\nundo/\noutbox.md\ninbox.md\nrecon.md\n"
+GITIGNORE = "packets/\nreplies/\nundo/\nlanes/\noutbox.md\ninbox.md\nrecon.md\n"
 
 
 class Workspace:
@@ -76,6 +76,32 @@ class Workspace:
         p = d / f"turn-{turn:04d}.md"
         p.write_text(text, encoding="utf-8")
         return p
+
+    def save_named(self, kind: str, name: str, text: str) -> Path:
+        d = self.dir / kind
+        d.mkdir(parents=True, exist_ok=True)
+        p = d / f"{name}.md"
+        p.write_text(text, encoding="utf-8")
+        return p
+
+    def read_named(self, kind: str, name: str) -> str | None:
+        p = self.dir / kind / f"{name}.md"
+        return p.read_text(encoding="utf-8") if p.exists() else None
+
+    # ---- per-chat uncommitted work (path -> {"base": text|None, "after": text|None})
+    def load_overlay(self, chat: str) -> dict[str, dict[str, str | None]]:
+        p = self.dir / "lanes" / f"{chat}.json"
+        data: dict[str, dict[str, str | None]] = json.loads(p.read_text()) if p.exists() else {}
+        return data
+
+    def save_overlay(self, chat: str, overlay: dict[str, dict[str, str | None]]) -> None:
+        d = self.dir / "lanes"
+        d.mkdir(parents=True, exist_ok=True)
+        p = d / f"{chat}.json"
+        if overlay:
+            p.write_text(json.dumps(overlay))
+        elif p.exists():
+            p.unlink()
 
     def journal(self, entry: dict[str, Any]) -> None:
         self.ensure_dir()

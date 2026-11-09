@@ -75,3 +75,20 @@ def test_audit_and_adopt_tracks() -> None:
 def test_state_roundtrip() -> None:
     s = State(track=Track.NEW, phase=Phase.SLICE, slices=[Slice(id="S1", title="t", touches=["a.py"])])
     assert State.from_dict(s.to_dict()) == s
+
+
+def test_advance_into_slice_without_activation_for_parallel_dispatch() -> None:
+    s = State(track=Track.NEW, phase=Phase.PLAN, slices=[Slice(id="S1", title="a"), Slice(id="S2", title="b")])
+    s = advance(s, activate=False)
+    assert s.phase == Phase.SLICE and s.current_slice is None and s.status == Status.READY
+    assert [x.status for x in s.slices] == ["todo", "todo"]
+
+
+def test_state_roundtrip_with_chats_and_events() -> None:
+    from chatop.domain.models import Chat, ChatStatus
+
+    s = State(track=Track.NEW, phase=Phase.SLICE)
+    s.chats = [Chat(id="c1", issue="S1", status=ChatStatus.READY, turn=2, seen={"file:a.py": "h"})]
+    s.events = [{"seq": 1, "kind": "ready", "chat": "c1", "msg": "c1 ready"}]
+    s.event_seq = 1
+    assert State.from_dict(s.to_dict()) == s

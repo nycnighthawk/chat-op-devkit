@@ -38,6 +38,7 @@ class ChatopApp(App[None]):
     """
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("n", "next", "Next packet"),
+        Binding("d", "dispatch", "Dispatch issues"),
         Binding("a", "apply_clip", "Apply clipboard"),
         Binding("w", "toggle_watch", "Watch"),
         Binding("y", "accept", "Accept recommended"),
@@ -53,6 +54,7 @@ class ChatopApp(App[None]):
         self.watching = False
         self.last_seen: str | None = None
         self._timer: Any = None
+        self._seen_seq = 0
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -61,6 +63,8 @@ class ChatopApp(App[None]):
                 yield Static(id="status")
                 yield Static(id="slices")
             with TabbedContent(id="tabs"):
+                with TabPane("Board", id="tab-board"):
+                    yield Static(id="board")
                 with TabPane("Packet", id="tab-packet"):
                     yield TextArea("", read_only=True, id="packet")
                 with TabPane("Reply", id="tab-reply"):
@@ -79,6 +83,7 @@ class ChatopApp(App[None]):
 
     def on_mount(self) -> None:
         self.action_refresh()
+        self.set_interval(1.5, self._poll_events)
 
     # ---------------------------------------------------------------- helpers
     def _append_log(self, msg: str) -> None:
@@ -118,6 +123,7 @@ class ChatopApp(App[None]):
         if info is None:
             self.query_one("#status", Static).update("not initialised: run `chatop init` first")
             return
+        self._render_board(info)
         cur = info["slice"]
         self.query_one("#status", Static).update(
             f"[b]{info['project']}[/b]\ntrack  {info['track']}\nphase  {info['phase']}\nstatus {info['status']}\n"
@@ -134,22 +140,87 @@ class ChatopApp(App[None]):
         self.query_one("#evidence", TextArea).load_text(info["evidence"] or "(none)")
         self._render_questions()
 
+    def _render_board(self, info: dict[str, Any]) -> None:
+        if info["mode"] != "parallel":
+            self.query_one("#board", Static).update("serial mode. Raise `max_parallel` to relay to several chats.")
+            return
+        b = self.session.board()
+        icon = {
+            "send": "[green]●[/green] your move: copy",
+            "paste": "[green]●[/green] your move: paste",
+            "fix": "[red]●[/red] your move: repair",
+            "answer": "[magenta]?[/magenta] your move: answer",
+            "blocked": "[red]✖[/red] blocked",
+            "waiting": "[yellow]…[/yellow] waiting for LLM",
+            "applying": "[cyan]⟳[/cyan] applying",
+            "closed": "[dim]○ closed[/dim]",
+        }
+        lines = [
+            f"[b]Chats[/b] (max_parallel {b['max_parallel']}) tokens sent {b['tokens']['sent']:,}, "
+            f"saved by deltas {b['tokens']['saved']:,}",
+            "",
+        ]
+        lines += [
+            f"{c['id']}  {icon[c['stage']]:<34} turn {c['turn']:<2} {c['title'] or '-'}"
+            + (f"  [dim]({c['kind']} packet)[/dim]" if c["can_send"] else "")
+            for c in b["chats"]
+        ]
+        lines += ["", "[b]Issues[/b]"]
+        for i in b["issues"]:
+            wait = (
+                f" [dim]waits for {', '.join(i['waiting_on'])}[/dim]"
+                if i["waiting_on"] and i["status"] == "todo"
+                else ""
+            )
+            lines.append(f"{i['id']:<8} {i['status']:<8} {i['title']}{wait}")
+        lines += ["", "[b]Events[/b]"] + [f"[{e['ts']}] {e['kind']}: {e['text']}" for e in b["events"][-8:]]
+        lines += ["", f"[i]{b['hint']}[/i]"]
+        self.query_one("#board", Static).update("\n".join(lines))
+
+    def _poll_events(self) -> None:
+        """Surface 'chat X is ready' style events as toasts, whatever caused them (paste, watch, another UI)."""
+        try:
+            fresh = self.session.events_since(self._seen_seq) if self.session.ws.initialised else []
+        except SessionError:
+            return
+        for e in fresh:
+            self._seen_seq = max(self._seen_seq, e["seq"])
+            if e["kind"] in ("ready", "blocked", "question", "rejected", "finished", "done"):
+                self.notify(e["text"], severity="warning" if e["kind"] in ("blocked", "rejected") else "information")
+        if fresh:
+            self.action_refresh()
+
+    def action_dispatch(self) -> None:
+        out = self._guard(self.session.dispatch)
+        if out is not None:
+            self.notify(f"{len(out)} issue(s) dispatched" if out else "nothing to dispatch")
+        self.action_refresh()
+
+    def _question_rows(self) -> list[tuple[str | None, Any]]:
+        st = self.session.state
+        if self.session.in_lane_mode():
+            return [(c.id, q) for c in st.chats for q in c.questions if not q.answered]
+        return [(None, q) for q in self.session.pending_questions()]
+
     def _render_questions(self) -> None:
         box = self.query_one("#questions", VerticalScroll)
         box.remove_children()
-        for q in self.session.pending_questions():
+        for chat, q in self._question_rows():
+            key = f"{chat or 'main'}-{q.id}"
             sel = SelectionList[str](
                 *[
                     Selection(o + ("  ★ recommended" if o in q.recommended else ""), o, o in q.recommended)
                     for o in q.options
                 ],
-                id=f"sel-{q.id}",
+                id=f"sel-{key}",
             )
             box.mount(
                 Vertical(
-                    Label(f"[b]{q.id}[/b] {q.text} ({'pick any' if q.multi else 'pick one'})"),
+                    Label(
+                        f"[b]{chat + ' ' if chat else ''}{q.id}[/b] {q.text} ({'pick any' if q.multi else 'pick one'})"
+                    ),
                     sel,
-                    Input(placeholder="other (free text)", id=f"other-{q.id}"),
+                    Input(placeholder="other (free text)", id=f"other-{key}"),
                     classes="qbox",
                 )
             )
@@ -214,11 +285,12 @@ class ChatopApp(App[None]):
         elif event.button.id == "btn-apply-clip":
             self.action_apply_clip()
         elif event.button.id == "btn-answers":
-            for q in self.session.pending_questions():
-                choices = list(self.query_one(f"#sel-{q.id}", SelectionList).selected)
-                other = self.query_one(f"#other-{q.id}", Input).value
+            for chat, q in self._question_rows():
+                key = f"{chat or 'main'}-{q.id}"
+                choices = list(self.query_one(f"#sel-{key}", SelectionList).selected)
+                other = self.query_one(f"#other-{key}", Input).value
                 try:
-                    self.session.answer(q.id, choices, other)
+                    self.session.answer(q.id, choices, other, chat)
                 except SessionError as exc:
                     self.notify(str(exc), severity="error")
             self.action_next()

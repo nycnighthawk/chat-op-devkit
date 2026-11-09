@@ -18,4 +18,6 @@ def test_playbook_embeds_current_sources() -> None:
         assert text == (ROOT / "src/chatop/prompts" / f"{name}.md").read_text(), f"stale prompt {name}: rebuild"
     for name, text in data["docs"].items():
         assert text == (ROOT / "docs" / name).read_text(), f"stale doc {name}: rebuild"
-    assert set(data["labs"]) == {"new-project", "continue-feature", "adopt", "audit"}
+    assert set(data["labs"]) == {"new-project", "continue-feature", "adopt", "audit", "parallel-relay"}
+    mock = (ROOT / "docs" / "chatop-mock-ui.html").read_text()
+    assert data["mock"] == mock, "stale mock inside the playbook: rebuild"

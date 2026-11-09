@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>chatop mock UI: parallel relay</title>
+<style>
+:root{--bg:#0b0d11;--panel:#141821;--line:#262b36;--fg:#e6e8ee;--mute:#9aa3b2;--acc:#7aa2f7;--ok:#9ece6a;--bad:#f7768e;--warn:#e0af68;--ask:#bb9af7}
+@media (prefers-color-scheme:light){:root{--bg:#eceff4;--panel:#fff;--line:#d9dee7;--fg:#1d2330;--mute:#5d6678;--acc:#2f5bd3;--ok:#2e7d32;--bad:#c62828;--warn:#a96b00;--ask:#7b3fc4}}
+*{box-sizing:border-box}html,body{height:100%}body{margin:0;font:13px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;background:var(--bg);color:var(--fg);display:flex;flex-direction:column}
+.top{display:flex;gap:12px;align-items:center;padding:8px 14px;border-bottom:1px solid var(--line);background:var(--panel);flex-wrap:wrap}
+.top b{font-size:14px}.tag{font-size:11px;border:1px solid var(--warn);color:var(--warn);border-radius:99px;padding:1px 8px}
+.crumbs{display:flex;gap:6px;align-items:center}.crumbs button{border:0;padding:2px 4px;color:var(--acc)}.crumbs .here{font-weight:600}
+button,select{font:inherit;padding:4px 10px;border-radius:7px;border:1px solid var(--line);background:transparent;color:var(--fg);cursor:pointer}
+button.primary{background:var(--acc);border-color:var(--acc);color:#fff}button:disabled{opacity:.4;cursor:default}
+button:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.clip{flex:1;min-width:240px;font:11.5px ui-monospace,Menlo,monospace;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.clip b{color:var(--fg)}
+/* hub */
+#hub{flex:1;overflow:auto;padding:22px 24px;max-width:1180px;width:100%;margin:0 auto}
+#hub h1{font-size:22px;margin:0 0 4px}#hub .lead{color:var(--mute);margin:0 0 18px}
+#hub h2{font-size:12px;text-transform:uppercase;letter-spacing:.07em;color:var(--mute);margin:22px 0 8px}
+.inbox{background:var(--panel);border:1px solid var(--acc);border-radius:12px;padding:6px 8px}
+.inbox .row{display:grid;grid-template-columns:120px 44px 1fr auto;gap:10px;align-items:center;width:100%;text-align:left;border:0;border-radius:8px;padding:9px 10px}
+.inbox .row:hover,.inbox .row:focus-visible{background:var(--bg)}.inbox .go{color:var(--acc);font-weight:600}
+.inbox .none{padding:14px;color:var(--mute)}
+.chip{display:inline-block;font-size:11px;border-radius:99px;padding:1px 9px;border:1px solid var(--line);color:var(--mute);white-space:nowrap}
+.chip.you{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600}.chip.wait{border-color:var(--warn);color:var(--warn)}.chip.ok{border-color:var(--ok);color:var(--ok)}
+.chip.ask{border-color:var(--ask);color:var(--ask)}.chip.bad{border-color:var(--bad);color:var(--bad)}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:14px}
+.pcard{display:flex;flex-direction:column;gap:9px;text-align:left;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;min-height:170px}
+.pcard:hover{border-color:var(--acc)}.pcard.hot{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc) inset}.pcard.fin{opacity:.8}
+.pcard .nm{font-size:16px;font-weight:650;display:flex;justify-content:space-between;gap:8px}.pcard .bl{color:var(--mute)}
+.pcard .chips{display:flex;gap:6px;flex-wrap:wrap}.pcard .nx{margin-top:auto;font-weight:600}.pcard .nx.fin{color:var(--ok)}
+.bar{height:6px;background:var(--line);border-radius:3px;overflow:hidden}.bar i{display:block;height:100%;background:var(--ok);width:0}
+.laws{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:6px 14px;margin-top:22px}.laws summary{cursor:pointer;padding:8px 0;font-weight:600}
+.laws table{border-collapse:collapse;width:100%;margin:6px 0 10px}.laws td,.laws th{text-align:left;vertical-align:top;padding:5px 8px;border-top:1px dashed var(--line)}.laws th{color:var(--mute);font-weight:500}
+/* project view */
+.wrap{flex:1;display:grid;grid-template-columns:minmax(0,1fr) 360px;min-height:0}
+@media (max-width:1000px){.wrap{grid-template-columns:1fr;grid-template-rows:70vh auto}}
+iframe{width:100%;height:100%;border:0;background:var(--bg)}
+.side{border-left:1px solid var(--line);overflow:auto;padding:10px;background:var(--panel)}
+.side h3{margin:10px 0 6px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute)}
+.todo{list-style:none;margin:0;padding:0}.todo li{padding:3px 0 3px 22px;position:relative;color:var(--mute)}
+.todo li:before{content:"○";position:absolute;left:3px}.todo li.done{color:var(--fg)}.todo li.done:before{content:"✔";color:var(--ok)}
+.tab{border:1px solid var(--line);border-radius:9px;margin-bottom:10px;background:var(--bg);overflow:hidden}
+.tab header{display:flex;justify-content:space-between;padding:5px 10px;background:var(--line);font-weight:600}
+.tab .body{padding:8px 10px;display:flex;flex-direction:column;gap:6px}
+.tab textarea{width:100%;min-height:46px;font:11px/1.4 ui-monospace,Menlo,monospace;background:var(--panel);color:var(--fg);border:1px dashed var(--line);border-radius:6px;padding:6px;resize:vertical}
+.tab pre{margin:0;max-height:120px;overflow:auto;white-space:pre-wrap;font:11px/1.4 ui-monospace,Menlo,monospace;color:var(--mute)}
+.st{font-size:12px}.st.think{color:var(--warn)}.st.rep{color:var(--ok)}.warn{color:var(--bad);font-size:12px}
+.pbar{height:4px;background:var(--line);border-radius:3px;overflow:hidden}.pbar i{display:block;height:100%;background:var(--warn);width:0}
+.note{font-size:12px;color:var(--mute)}
+</style>
+</head>
+<body>
+<div class="top"><div class="crumbs" id="crumbs"></div><span class="tag">scripted LLM, no real model, nothing is built</span>
+  <span class="clip" id="clip">clipboard: (empty)</span>
+  <label>LLM speed <select id="speed"><option value="0.4">fast</option><option value="1" selected>normal</option><option value="2">slow</option></select></label>
+  <button id="restart">Restart scenarios</button></div>
+<main id="hub" aria-label="Projects"></main>
+<div class="wrap" id="projView" style="display:none">
+  <iframe id="app" title="chatop web UI"></iframe>
+  <div class="side">
+    <div class="note">Left: the <b>real</b> chatop page for this project. Below: the <b>browser tabs</b> where you chat (scripted LLMs). You are the relay: copy a packet, paste it into the tab it names, <b>click “I pasted it”</b>, wait, copy the reply, paste it anywhere on the chatop page.</div>
+    <h3>Try this</h3><ul class="todo" id="todo"></ul>
+    <h3>Your chat windows</h3><div id="tabs"></div>
+  </div>
+</div>
+<script>
+/*__MOCK_BACKEND__*/
+</script>
+<script>
+const PAGE = "__REAL_PAGE__";
+let clip = "", cur = null; // cur = open project id, null = hub
+const $ = (id) => document.getElementById(id);
+const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+function classify(t) {
+  const h = /# CHATOP PACKET.* project `([\w-]+)` · chat (\w+) · turn (\d+) · (full|delta)/.exec(t);
+  if (h) return `packet for <b>${h[1]}/${h[2]}</b> (${h[4]}, ~${Math.ceil(t.length / 4).toLocaleString()} tok)`;
+  const r = /<<<CHATOP chat=(\w+) turn=(\d+)>>>/.exec(t);
+  if (r && /@@summary/.test(t)) return `reply from <b>${r[1]}</b>`;
+  if (/^chatop could not/.test(t)) return "repair prompt";
+  return "text";
+}
+function setClip(t) {
+  clip = t;
+  $("clip").innerHTML = "clipboard: " + (t ? classify(t) + " · " + esc(t.slice(0, 70).replace(/\s+/g, " ")) : "(empty)");
+  try { navigator.clipboard.writeText(t).catch(() => {}); } catch (e) { /* the sandbox may block it; the mock keeps its own */ }
+}
+window.shellCopied = setClip;
+window.shellClip = () => clip;
+window.openHub = () => open(null);
+
+function shim(pid) {
+  return "<script>window.CHATOP_API=(p,b)=>parent.MOCK.api(p,b," + JSON.stringify(pid) + ");window.CHATOP_HOOKS={copied:t=>parent.shellCopied(t),hub:()=>parent.openHub()};" +
+    "Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async t=>parent.shellCopied(t),readText:async()=>parent.shellClip()}});<\/script>";
+}
+function loadApp(pid) { $("app").srcdoc = PAGE.replace("<head>", "<head>" + shim(pid)); }
+
+/* ---- simulated chat windows: one strip per project, kept alive while you visit other projects */
+const tabs = {};            // "project/chat" -> tab
+const BASE = { c1: 2500, c2: 9000, c3: 4500 };
+const dom = (k) => k.replace(/[^\w]/g, "_");
+function think(id) { return (BASE[id] || 4000) * parseFloat($("speed").value); }
+function tab(pid, id) {
+  const key = pid + "/" + id;
+  if (tabs[key]) return tabs[key];
+  const d = dom(key), el = document.createElement("div");
+  el.className = "tab"; el.dataset.project = pid;
+  el.innerHTML = `<header><span>Tab ${id}</span><span class="st" id="st-${d}">empty</span></header><div class="body">
+    <textarea id="in-${d}" placeholder="Paste here (Ctrl/Cmd+V), or:" aria-label="chat window ${id}"></textarea>
+    <div><button class="primary" id="pb-${d}">Paste clipboard here</button> <button id="cr-${d}" disabled>Copy reply</button></div>
+    <div class="pbar"><i id="bar-${d}"></i></div><div class="warn" id="warn-${d}"></div><pre id="out-${d}"></pre></div>`;
+  el.hidden = pid !== cur;
+  $("tabs").appendChild(el);
+  const t = (tabs[key] = { pid, id, d, hasFull: false, last: "", reply: "", busy: false, el });
+  $("pb-" + d).onclick = () => receive(t, clip);
+  $("in-" + d).addEventListener("paste", () => setTimeout(() => { receive(t, $("in-" + d).value); $("in-" + d).value = ""; }, 20));
+  $("cr-" + d).onclick = () => { setClip(t.reply); $("st-" + d).textContent = "reply copied"; };
+  return t;
+}
+function receive(t, text, remaining) {
+  const d = t.d;
+  if (!text || t.busy) return;
+  const hdr = /# CHATOP PACKET.* project `([\w-]+)` · chat (\w+) · turn (\d+) · (full|delta)/.exec(text);
+  const repair = /^chatop could not/.test(text);
+  $("warn-" + d).textContent = "";
+  if (!hdr && !repair) { $("warn-" + d).textContent = "That is not a chatop packet. Copy one from chatop first."; return; }
+  if (hdr) {
+    if (hdr[1] !== t.pid) $("warn-" + d).textContent = `This packet belongs to project ${hdr[1]}, not ${t.pid}. Open the right tab.`;
+    else if (hdr[2] !== t.id) $("warn-" + d).textContent = `This is ${hdr[2]}'s packet. The reply will carry chat=${hdr[2]}, so chatop still routes it right, but this tab's history is now mixed up.`;
+    else if (hdr[4] === "delta" && !t.hasFull) $("warn-" + d).textContent = "This tab never received a full packet: use 'Copy full' in chatop for a fresh tab.";
+    if (hdr[4] === "full") t.hasFull = true;
+    t.last = text;
+  }
+  const source = repair ? t.last : text;
+  $("out-" + d).textContent = repair ? "(repair prompt received)" : text.slice(0, 220) + "\n… (" + Math.ceil(text.length / 4).toLocaleString() + " tokens pasted)";
+  t.busy = true; $("cr-" + d).disabled = true;
+  const total = remaining || think(t.id), t0 = Date.now();
+  $("st-" + d).className = "st think"; $("st-" + d).textContent = "thinking…";
+  const iv = setInterval(() => { $("bar-" + d).style.width = Math.min(100, ((Date.now() - t0) / total) * 100) + "%"; }, 120);
+  setTimeout(() => {
+    clearInterval(iv); $("bar-" + d).style.width = "0";
+    t.reply = MOCK.llmReply(source) || ""; t.busy = false;
+    $("out-" + d).textContent = t.reply.slice(0, 600);
+    $("st-" + d).className = "st rep"; $("st-" + d).textContent = "reply ready";
+    $("cr-" + d).disabled = !t.reply;
+  }, total);
+}
+/* chats that already have a packet out and are flagged as pasted get a tab that is already thinking */
+function seedTabs() {
+  for (const pid of ["csv2md", "notes-api", "docs-site"]) {
+    for (const c of MOCK.state(pid).chats) if (c.status === "awaiting_reply" && c.sentAt && !tabs[pid + "/" + c.id]) { const t = tab(pid, c.id); receive(t, c.packet, 14000 * parseFloat($("speed").value)); }
+  }
+}
+
+/* ---- the hub */
+const ORDER = ["paste", "fix", "answer", "blocked", "send"];
+const ACT = { send: "Copy the packet", paste: "Confirm you pasted it", fix: "Send the repair prompt", answer: "Answer the question", blocked: "Decide how to proceed" };
+const fmt = (sec) => { sec = Math.max(0, Math.floor(sec)); return Math.floor(sec / 60) + ":" + String(sec % 60).padStart(2, "0"); };
+function tickClocks() { document.querySelectorAll("[data-since]").forEach((e) => { e.textContent = fmt(Date.now() / 1000 - parseFloat(e.dataset.since)); }); }
+function hubModel() {
+  const ps = MOCK.listProjects();
+  const inbox = [];
+  for (const p of ps) {
+    if (p.summary.your_move && p.phase === "plan") inbox.push({ p, chat: "plan", stage: "approve", pri: -1, text: "Review and approve the plan" });
+    for (const c of p.chats) if (["send", "paste", "fix", "answer", "blocked"].includes(c.stage)) inbox.push({ p, chat: c.id, stage: c.stage, pri: ORDER.indexOf(c.stage), text: ACT[c.stage] + (c.title ? " · " + c.title : "") });
+  }
+  inbox.sort((a, b) => a.pri - b.pri);
+  const rank = (p) => (p.summary.your_move ? 0 : p.summary.waiting ? 1 : p.phase === "done" ? 3 : 2);
+  ps.sort((a, b) => rank(a) - rank(b) || (b.summary.your_move - a.summary.your_move));
+  return { ps, inbox, total: ps.reduce((a, p) => a + p.summary.your_move, 0) };
+}
+const LAWS = [
+  ["Hick's law", "One primary button per card and one per screen (“N” does the top action). Closed chats and the plan table are folded away."],
+  ["Fitts's law", "Whole project cards are click targets; primary buttons are large and sit where the card's text ends."],
+  ["Jakob's law", "Inbox, cards, breadcrumbs and Kanban columns: patterns people already know from mail and boards."],
+  ["Miller's law", "Work is chunked into “Your move” and “Waiting for the LLM”; the rest is collapsed. Counts, not lists, on the hub."],
+  ["Doherty threshold", "Clicks move the card at once (optimistic update); waits show a live clock instead of a frozen page."],
+  ["Zeigarnik effect", "Started-but-unfinished steps (packet copied, not yet pasted) stay on top of “Your move” until you finish them."],
+  ["Goal-gradient effect", "Every project shows “n of m issues closed” with a progress bar that fills as slices close."],
+  ["Von Restorff effect", "Only what needs you is accent-colored; waiting and closed work is calm."],
+  ["Serial position effect", "Projects needing you come first, finished ones last; inside a project, the step to finish first is first."],
+  ["Tesler's law / Postel's law", "You never say which chat a reply is for: paste it anywhere, chatop routes it by its header and absorbs the complexity."],
+  ["Peak-end rule", "A finished project says so plainly, with the tokens saved, instead of fading into an empty list."],
+];
+let hubSig = "";
+function renderHub(force) {
+  const m = hubModel();
+  const sig = JSON.stringify(m.ps.map((p) => [p.id, p.summary, p.next, p.chats.map((c) => c.stage)]));
+  if (!force && sig === hubSig) return;   // do not rebuild (and drop keyboard focus) when nothing changed
+  hubSig = sig;
+  document.title = (m.total ? `(${m.total}) ` : "") + "chatop mock · projects";
+  const chip = (cls, txt) => `<span class="chip ${cls}">${txt}</span>`;
+  $("hub").innerHTML = `<h1>Projects</h1><p class="lead">${m.total ? `<b>${m.total}</b> thing${m.total > 1 ? "s need" : " needs"} you across ${new Set(m.inbox.map((i) => i.p.id)).size} project(s). Everything else is waiting on an LLM.` : "Nothing needs you. Everything is waiting on an LLM or finished."}</p>
+    <h2>Your move across all projects</h2><div class="inbox">${m.inbox.length ? m.inbox.map((i) => `<button class="row" data-open="${i.p.id}" data-chat="${i.chat}"><b>${esc(i.p.name)}</b><span class="chip ${i.stage === "answer" ? "ask" : i.stage === "fix" ? "bad" : "you"}">${esc(i.chat)}</span><span>${esc(i.text)}</span><span class="go">Open ›</span></button>`).join("") : '<div class="none">Nothing to do right now ✓</div>'}</div>
+    <h2>All projects</h2><div class="cards">${m.ps.map((p) => { const sm = p.summary, fin = p.phase === "done";
+      return `<button class="pcard ${sm.your_move ? "hot" : ""} ${fin ? "fin" : ""}" data-open="${p.id}"><div class="nm"><span>${esc(p.name)}</span>${chip("", esc(p.track))}</div><div class="bl">${esc(p.blurb)}</div>
+        <div><div class="bar"><i style="width:${sm.percent}%"></i></div><div class="note" style="margin-top:3px">${sm.issues_done} of ${sm.issues_total} issues closed</div></div>
+        <div class="chips">${sm.your_move ? chip("you", sm.your_move + " your move") : ""}${sm.waiting ? chip("wait", sm.waiting + " waiting · <span data-since=\"" + p.oldest_wait + "\"></span>") : ""}${sm.applying ? chip("", sm.applying + " applying") : ""}${sm.closed ? chip("ok", sm.closed + " closed") : ""}${p.chats.length ? "" : chip("", "no chats yet")}</div>
+        <div class="nx ${fin ? "fin" : ""}">${fin ? "✔ Finished" : "Next: " + esc(p.next)}</div></button>`; }).join("")}</div>
+    <details class="laws"><summary>Why it looks like this: the UX laws applied</summary><table><tr><th>Law</th><th>Where you see it</th></tr>${LAWS.map(([a, b]) => `<tr><td><b>${a}</b></td><td>${b}</td></tr>`).join("")}</table></details>`;
+  tickClocks();
+}
+$("hub").addEventListener("click", (e) => { const b = e.target.closest("[data-open]"); if (b) open(b.dataset.open); });
+
+/* ---- navigation */
+function crumbs() {
+  $("crumbs").innerHTML = `<b>chatop</b> <span class="note">›</span> ` + (cur ? `<button id="goHub">Projects</button><span class="note">›</span><span class="here">${esc(cur)}</span>` : '<span class="here">Projects</span>');
+  const g = $("goHub"); if (g) g.onclick = () => open(null);
+}
+function open(pid) {
+  cur = pid; crumbs();
+  try { history.replaceState(null, "", pid ? "#" + pid : "#"); } catch (e) { /* sandboxed frames may refuse */ }
+  $("hub").style.display = pid ? "none" : "block";
+  $("projView").style.display = pid ? "grid" : "none";
+  if (pid) { loadApp(pid); Object.values(tabs).forEach((t) => { t.el.hidden = t.pid !== pid; }); renderSteps(); }
+  else { $("app").srcdoc = ""; renderHub(true); }
+}
+
+/* ---- guided steps */
+const STEPS = {
+  csv2md: [
+    ["Approve the plan: it becomes issues and chatop opens a chat for S0", (s, f) => f.approved],
+    ["Relay S0 through tab c1: Copy packet, paste it in the tab, click “I pasted it ✓”, wait, copy the reply, then press Ctrl/Cmd+V on the chatop page", (s, f) => f.flaggedSent && s.issues.find((i) => i.id === "S0").status === "done"],
+    ["S1 and S2 are independent: copy and flag BOTH packets before pasting any reply (press N repeatedly)", (s, f) => f.twoChats],
+    ["Paste whichever reply finishes first (c3 is faster than c2): chatop routes it by header", (s, f) => f.outOfOrder],
+    ["The reply with typos is rejected once, listing both files; send its repair prompt and flag it as pasted", (s, f) => f.batchReject],
+    ["c2's failing test does not stop c3 from finishing (lanes are isolated)", (s, f) => f.isolated],
+    ["c2 continues with a small DELTA packet (compare tokens under More on its card)", (s, f) => f.delta],
+    ["Answer the question from S3 and finish the project", (s, f) => f.finished],
+    ["Bonus: go back to Projects and clear notes-api's inbox (answer c4, copy c3's packet, paste c2's reply)", () => MOCK.state("notes-api").issues.filter((i) => i.status === "done").length >= 2],
+  ],
+  "notes-api": [
+    ["Your move first: c4 has a question, c3's packet is waiting to be copied", () => MOCK.state("notes-api").flags.answered],
+    ["c2 was pasted minutes ago: copy its reply from the tab on the right and paste it anywhere on the page", () => MOCK.state("notes-api").issues.find((i) => i.id === "N1").status === "done"],
+    ["Close N2 (its first reply fails a test, the second passes) and watch N3/N4 unlock", () => MOCK.state("notes-api").issues.find((i) => i.id === "N2").status === "done"],
+  ],
+  "docs-site": [["Finished project: the progress bar is full and the chat stays free for the next feature", () => true]],
+};
+function renderSteps() {
+  if (!cur) return;
+  const s = MOCK.state(cur), f = MOCK.flags(cur);
+  $("todo").innerHTML = (STEPS[cur] || []).map(([t, ok]) => `<li class="${ok(s, f) ? "done" : ""}">${t}</li>`).join("");
+  s.chats.forEach((c) => tab(cur, c.id));
+}
+function restart() {
+  MOCK.reset(); Object.values(tabs).forEach((t) => t.el.remove()); for (const k of Object.keys(tabs)) delete tabs[k];
+  setClip(""); seedTabs();
+window.addEventListener("hashchange", () => { const h = location.hash.slice(1); if ((h || null) !== cur && (!h || MOCK.state(h))) open(h || null); });
+{ const h = location.hash.slice(1); open(h && (["csv2md", "notes-api", "docs-site"].includes(h)) ? h : null); }
+}
+$("restart").onclick = restart;
+setInterval(() => { renderSteps(); if (!cur) renderHub(); tickClocks(); }, 1000);
+seedTabs();
+window.addEventListener("hashchange", () => { const h = location.hash.slice(1); if ((h || null) !== cur && (!h || MOCK.state(h))) open(h || null); });
+{ const h = location.hash.slice(1); open(h && (["csv2md", "notes-api", "docs-site"].includes(h)) ? h : null); }
+</script>
+</body>
+</html>

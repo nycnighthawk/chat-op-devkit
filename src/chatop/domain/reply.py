@@ -26,7 +26,8 @@ from typing import cast
 
 from chatop.domain.models import NEED_KINDS, Need, NeedKind, Question, Role, Slice
 
-START_RE = re.compile(r"^<<<CHATOP(?:\s+turn=(\d+))?\s*>>>\s*$")
+START_RE = re.compile(r"^<<<CHATOP((?:\s+[a-z]+=[\w-]+)*)\s*>>>\s*$")
+ATTR_RE = re.compile(r"([a-z]+)=([\w-]+)")
 END_MARK = "<<<END>>>"
 PACKET_MARK = "# CHATOP PACKET"  # first line of every outbound packet; never a reply
 BLOCK_DIRECTIVES = {"file", "test", "doc", "edit", "ask", "slices"}
@@ -71,6 +72,7 @@ Op = Write | Edit | Delete
 @dataclass
 class Reply:
     turn: int | None = None
+    chat: str | None = None
     summary: str = ""
     ops: list[Op] = field(default_factory=list)  # file operations, in reply order
     questions: list[Question] = field(default_factory=list)
@@ -99,15 +101,33 @@ def is_packet(text: str) -> bool:
     return text.lstrip().startswith(PACKET_MARK) or f"\n{PACKET_MARK}" in text[:2000]
 
 
+def _header(line: str) -> tuple[str | None, int | None] | None:
+    m = START_RE.match(line.strip())
+    if m is None:
+        return None
+    attrs = dict(ATTR_RE.findall(m.group(1)))
+    return attrs.get("chat"), int(attrs["turn"]) if attrs.get("turn", "").isdigit() else None
+
+
+def envelope_header(text: str) -> tuple[str | None, int | None] | None:
+    """(chat, turn) of the first CHATOP reply header in text, or None. Packets never count as replies."""
+    if is_packet(text):
+        return None
+    for line in text.replace("\r\n", "\n").split("\n"):
+        h = _header(line)
+        if h is not None:
+            return h
+    return None
+
+
 def contains_envelope(text: str) -> int | None:
     """Return the turn number if text holds a CHATOP reply envelope (used by clipboard watch)."""
     if is_packet(text):
         return None
-    for line in text.replace("\r\n", "\n").split("\n"):
-        m = START_RE.match(line.strip())
-        if m:
-            return int(m.group(1)) if m.group(1) else -1
-    return None
+    h = envelope_header(text)
+    if h is None:
+        return None
+    return h[1] if h[1] is not None else -1
 
 
 def parse_reply(text: str) -> Reply:
@@ -120,9 +140,9 @@ def parse_reply(text: str) -> Reply:
     if start is None:
         reply.errors.append("No <<<CHATOP turn=N>>> block found. Paste the whole reply or ask the LLM to re-emit it.")
         return reply
-    m = START_RE.match(lines[start].strip())
-    assert m is not None
-    reply.turn = int(m.group(1)) if m.group(1) else None
+    header = _header(lines[start])
+    assert header is not None
+    reply.chat, reply.turn = header
     end = next((i for i in range(start + 1, len(lines)) if lines[i].strip() == END_MARK), None)
     if end is None:
         reply.errors.append("Reply looks truncated (missing <<<END>>>). Ask the LLM: 'continue the CHATOP block'.")
@@ -179,6 +199,7 @@ def _block(reply: Reply, name: str, arg: str, body: list[str]) -> None:
                     goal=str(s.get("goal", "")),
                     acceptance=[str(a) for a in s.get("acceptance", [])],
                     touches=[str(t) for t in s.get("touches", [])],
+                    depends=[str(d) for d in s.get("depends", [])],
                 )
                 for s in raw
             ]

@@ -10,7 +10,7 @@ Run the labs from an activated venv that has pytest and mypy (the check commands
 
 ## Lab 0: setup (10 min)
 1. Install (see GETTING-STARTED). `chatop doctor` should be all ok, except checks.
-2. `pytest -q` in chat-op-devkit. You should see 62 tests pass, including the 4 lab replays.
+2. `pytest -q` in chat-op-devkit. You should see all tests pass (about 130), including the 5 lab replays and the mock UI scenario.
 3. **Exercise:** `CHATOP_CLIPBOARD=file chatop doctor`. Note how the clipboard backend changes.
 
 ## Lab 1: new project, from a vague idea to shipped slices (`labs/new-project`)
@@ -45,6 +45,23 @@ weakening tests; discuss how you would catch this at review (`git diff` of `test
 * The DELTA creates a PRD/SPEC scoped to the feature, because the adopted project had none.
 **Exercise:** with codegraph installed, rerun the lab and compare turn 1's repo map and the `@@need symbol TodoStore`
 results.
+
+## Lab 5: parallel relay, several chats at once (`labs/parallel-relay`)
+**Goal:** work two issues in two chats at the same time, and see what chatop does so you do not have to.
+**Setup:** `chatop init --parallel 3`; a PLAN with `depends`/`touches`: S0 → (S1 ∥ S2) → S3.
+**Observe:**
+* After the plan is approved only S0 is ready. When S0 is done, chatop opens two chats (**full** packets) for S1 and S2.
+* Chat c2 answers first with a failing test. Nothing it wrote touches the tree (`git status` is clean).
+* Chat c3 answers with **two syntax errors in two files**: one rejection lists both. Its corrected reply then passes and
+  is committed, although c2's failing test exists: lanes are isolated.
+* c2's next packet is a **delta**: `chatop next c2` prints about 490 tokens against about 2,480 for a full packet.
+* S3 depends on S1 and S2. It goes to c2 because c2 already holds `convert.py`: another delta packet.
+* `chatop board` at the end shows tokens sent versus full and the event log.
+**Exercises:**
+1. Run with `chatop config --set max_parallel 1` before the plan is approved and compare the number of turns waiting.
+2. In `replies/07-s1-convert-bug.md` change the header to `chat=c3`. What happens to the routing? (Read the error.)
+3. Open `.chatop/lanes/c2.json` after the failing reply: that is the chat's held-back work.
+4. Try the mock UI (`docs/chatop-mock-ui.html`) and finish the project by pasting replies in the wrong order on purpose.
 
 ## Lab 4: audit a project of unknown quality (`labs/audit`)
 **Goal:** find out what is really there, pin it with tests, then fix it.

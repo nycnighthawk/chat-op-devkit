@@ -130,3 +130,30 @@ def test_packet_is_never_a_reply() -> None:
     from chatop.domain.reply import contains_envelope
 
     assert contains_envelope(packet) is None
+
+
+def test_header_carries_chat_id_in_any_order() -> None:
+    assert parse_reply("<<<CHATOP chat=c2 turn=5>>>\n<<<END>>>").chat == "c2"
+    r = parse_reply("<<<CHATOP turn=5 chat=c2>>>\n<<<END>>>")
+    assert (r.chat, r.turn, r.errors) == ("c2", 5, [])
+    r = parse_reply("<<<CHATOP turn=5>>>\n<<<END>>>")
+    assert r.chat is None and r.turn == 5
+
+
+def test_envelope_header_for_routing() -> None:
+    from chatop.domain.reply import envelope_header
+
+    assert envelope_header("noise\n````chatop\n<<<CHATOP chat=c7 turn=2>>>\n<<<END>>>") == ("c7", 2)
+    assert envelope_header("<<<CHATOP turn=4>>>") == (None, 4)
+    assert envelope_header("# CHATOP PACKET · x\n<<<CHATOP chat=c1 turn=1>>>") is None  # a packet, never a reply
+    assert envelope_header("nothing here") is None
+
+
+def test_slices_may_declare_dependencies() -> None:
+    text = (
+        "<<<CHATOP turn=3>>>\n@@slices\n"
+        '[{"id":"S1","title":"a","touches":["a.py"]},{"id":"S2","title":"b","depends":["S1"],"touches":["b.py"]}]\n'
+        "@@end\n<<<END>>>"
+    )
+    r = parse_reply(text)
+    assert r.slices is not None and r.slices[1].depends == ["S1"] and r.slices[0].depends == []

@@ -117,6 +117,16 @@ details { margin-top: 6px; } summary { cursor: pointer; font-size: 13px; color: 
   .play { grid-template-columns: 1fr; }
   .step { grid-template-columns: 1fr; }
 }
+.sim-ctl { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
+#simPlan input[type=text] { width: 100%; min-width: 70px; font: 12.5px var(--mono); background: var(--code); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; }
+#simPlan input[type=number] { width: 56px; font: 12.5px var(--mono); background: var(--code); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; }
+.gantt text { font: 11px var(--mono); fill: var(--ink); } .gantt .full { fill: var(--chatop); } .gantt .delta { fill: var(--llm); } .gantt .lane { stroke: var(--line); }
+.dbar { display: grid; grid-template-columns: 150px 1fr 150px; gap: 8px; align-items: center; margin: 4px 0; font-size: 13px; }
+.dbar i { display: block; height: 14px; border-radius: 4px; background: var(--chatop); } .dbar .d i { background: var(--llm); }
+.dbar .track { background: var(--line); border-radius: 4px; }
+.row-btns { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+.row-btns button { font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--chatop); background: var(--chatop); color: #fff; cursor: pointer; }
+#mockBox iframe { width: 100%; height: 920px; border: 1px solid var(--line); border-radius: 10px; margin-top: 10px; background: var(--panel); }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
@@ -129,6 +139,7 @@ details { margin-top: 6px; } summary { cursor: pointer; font-size: 13px; color: 
     <li><a href="#overview">Overview</a></li>
     <li><a href="#turns">Turn economics</a></li>
     <li><a href="#usecases">Use-case walkthroughs</a></li>
+    <li><a href="#parallel">Parallel relay</a></li>
     <li><a href="#architecture">Architecture</a></li>
     <li><a href="#decisions">Decisions</a></li>
     <li><a href="#contract">Reply contract lab</a></li>
@@ -178,6 +189,10 @@ details { margin-top: 6px; } summary { cursor: pointer; font-size: 13px; color: 
       <tr><td>A separate "red" turn for TDD</td><td>Two-stage apply: tests first must fail, then the code must pass</td><td>Verified TDD in one turn</td></tr>
       <tr><td>Copying error logs by hand</td><td>Failing check output goes into the next packet automatically</td><td>Retries need no human analysis</td></tr>
       <tr><td>Vague "that didn't work" retries</td><td>Precise repair prompts (stale turn, missing SEARCH, protected path, truncation)</td><td>The fix-up costs one paste</td></tr>
+      <tr><td>Waiting while one chat writes</td><td>Issues with <code>depends</code>/<code>touches</code> dispatched to several chats at once</td><td>Wall-clock time follows the plan's width, not its length</td></tr>
+      <tr><td>Resending SPEC, PRD and unchanged files to a chat that has them</td><td>Delta packets from content digests; chat reuse by file overlap</td><td>A continuing packet is a fraction of a full one</td></tr>
+      <tr><td>Deciding which chat a reply belongs to</td><td><code>chat=cN</code> in the reply header; header routing; background apply</td><td>Paste anything, in any order</td></tr>
+      <tr><td>One typo per round trip, per file</td><td>One-shot preflight: all files linted together, one repair prompt</td><td>One rejection instead of several</td></tr>
       <tr><td>Terminal context switches</td><td>Clipboard ping-pong (<code>chatop watch</code>, TUI <kbd>w</kbd>, web toggle)</td><td>The loop is just paste and copy</td></tr>
     </tbody>
   </table></div>
@@ -191,6 +206,46 @@ details { margin-top: 6px; } summary { cursor: pointer; font-size: 13px; color: 
   <div id="trackinfo"></div>
   <div class="pipeline" id="pipeline"></div>
   <div class="steps" id="steps"></div>
+</section>
+
+<section id="parallel">
+  <h2>Parallel relay: several chats at once</h2>
+  <p>A chat spends minutes writing while you wait. With <code>max_parallel &gt; 1</code> you keep several chat windows
+  busy and become a relay: copy each packet to the chat it names, paste each reply when it arrives, in any order.
+  The plan decides how much can overlap, so the PLAN prompt now asks for small independent slices with
+  <code>depends</code> and precise <code>touches</code>.</p>
+  <div class="grid cards">
+    <div class="card"><h4>Issues, not a queue</h4>The approved plan becomes issues. Every issue whose <code>depends</code> are done and whose <code>touches</code> do not collide with a running issue goes to a chat, up to <code>max_parallel</code>.</div>
+    <div class="card"><h4>Full, then deltas</h4>A new chat gets the full bootstrap packet. A continuing chat gets only what changed (digests per document and file) and a line naming what it already holds.</div>
+    <div class="card"><h4>Paste anywhere</h4>Replies carry <code>chat=cN</code> in their header. chatop routes them in any order, even when nothing is focused, and applies them in the background.</div>
+    <div class="card"><h4>Whose move?</h4>Each chat shows who acts next: you (copy, paste, repair, answer), the LLM (with a clock since you flagged the packet as pasted), or chatop. The page opens on what needs you.</div>
+    <div class="card"><h4>One-shot lint, isolated lanes</h4>All generated files are syntax-checked together: one repair prompt for every typo. A chat's failing code stays in its own overlay, so it cannot break another chat's checks.</div>
+  </div>
+  <h3>Plan simulator</h3>
+  <p class="muted">Edit the plan and the number of chats. This applies the same scheduling rules as chatop (dependencies, file collisions, capacity, chat reuse by overlap) on a timeline. Minutes are LLM time; relay overhead is your copy/paste per packet.</p>
+  <div class="panel">
+    <div class="sim-ctl"><label>chats at once <input type="range" id="simPar" min="1" max="5" value="3"> <b id="simParV">3</b></label>
+      <label>relay overhead per packet <input type="number" id="simRelay" min="0" max="5" step="0.5" value="1" style="width:60px"> min</label>
+      <button type="button" id="simReset">Reset plan</button></div>
+    <div class="tablewrap"><table id="simPlan"></table></div>
+    <div id="simStats" style="margin:10px 0"></div><div id="simGantt"></div><div id="simMsg" class="muted"></div>
+  </div>
+  <h3>Delta packets, measured</h3>
+  <p class="muted">From the Lab 5 transcript recorded when this page was built: what each packet cost against a full packet.</p>
+  <div id="deltaBars" class="panel"></div>
+  <h3>Whose move is it?</h3>
+  <p>Every chat is in exactly one stage, and the page groups them by who acts next. You flag a packet as pasted
+  because chatop cannot see your browser tabs. The design follows well-known UX laws; each is tied to something you can
+  see in the mock below.</p>
+  <details open class="panel"><summary><b>Stages, screens and the UX laws applied</b> (rendered from <code>docs/UX.md</code>)</summary><div id="uxdoc"></div></details>
+  <h3>Try the relay without installing anything</h3>
+  <p>A <strong>projects hub</strong> (cross-project inbox, progress, what needs you), the <strong>real project page</strong>
+  on an in-browser backend, and simulated chat tabs. Start on the hub, open <code>notes-api</code> (it is mid-flight:
+  one packet to copy, one question, one chat pasted minutes ago), then open <code>csv2md</code> for the guided run.
+  Do things out of order on purpose.</p>
+  <div class="row-btns"><button type="button" id="mockLaunch">Launch the interactive mock here</button>
+  <span class="muted">Also in the repo as <code>docs/chatop-mock-ui.html</code> (standalone, offline).</span></div>
+  <div id="mockBox"></div>
 </section>
 
 <section id="architecture">
@@ -286,7 +341,8 @@ details { margin-top: 6px; } summary { cursor: pointer; font-size: 13px; color: 
     <div class="card"><h4>chatop app</h4>Python ≥3.11, typed (mypy --strict). CLI, Textual TUI, and FastAPI web UI over one facade.</div>
     <div class="card"><h4>codegraph CLI</h4><code>@colbymchenry/codegraph</code>: every code lookup (query, callers, callees, impact, affected, files).</div>
     <div class="card"><h4>Project memory</h4><code>.chatop/</code> state, config, journal; <code>docs/</code> IDEA → PRD → SPEC → PLAN, AS-BUILT, AUDIT, FEATURE.</div>
-    <div class="card"><h4>Labs</h4>Four replayable labs with seeds and reference replies; they are also e2e tests.</div>
+    <div class="card"><h4>Labs</h4>Five replayable labs with seeds and reference replies; they are also e2e tests.</div>
+    <div class="card"><h4>Mock UI</h4>Projects hub, the real project page on a scripted backend and simulated chat tabs: <code>docs/chatop-mock-ui.html</code>.</div>
   </div>
   <h3>Repository layout</h3>
   <div class="panel tree" id="tree"></div>
@@ -376,14 +432,15 @@ const LABMETA = {
   "continue-feature": { title: "Continue a chatop project", sub: "Add a feature; recover from a failing attempt", track: "continue" },
   "adopt": { title: "Unknown, agent-built", sub: "Reverse-document, then extend", track: "adopt" },
   "audit": { title: "Unknown quality", sub: "Recon, audit, characterize, fix", track: "audit" },
+  "parallel-relay": { title: "Parallel relay", sub: "Several chats at once, routed by header", track: "parallel" },
 };
 function labStats(steps) {
-  const replies = steps.filter((s) => s.verb === "reply");
+  const replies = steps.filter((s) => s.verb === "reply" || s.verb === "reply-rejected");
   const outs = steps.map((s) => s.output || "").join("\n");
   const sizes = replies.map((s) => tok(s.packet || ""));
   return {
     turns: replies.length,
-    slices: (outs.match(/slice \S+ complete/g) || []).length,
+    slices: (outs.match(/(?:slice|issue) \S+ complete/g) || []).length,
     red: (outs.match(/TDD red step: proven/g) || []).length,
     fails: (outs.match(/check \w+: FAIL/g) || []).length,
     avg: sizes.length ? Math.round(sizes.reduce((a, b) => a + b, 0) / sizes.length) : 0,
@@ -408,11 +465,13 @@ const PIPES = {
   continue: [["feature"], ["refine", "loop"], ["delta", "gate"], ["plan", "gate"], ["slice", "loop"], ["done"]],
   adopt: [["recon"], ["done"], ["→ feature (continue track)"]],
   audit: [["recon"], ["audit", "gate"], ["plan", "gate"], ["slice", "loop"], ["done"]],
+  parallel: [["plan", "gate"], ["dispatch"], ["chats ∥", "loop"], ["route by header"], ["done"]],
 };
 const TRACKINFO = {
   new: "Use when there is no code yet. The LLM refines the idea with batched, recommended-answer questions, then writes the PRD (testable ACs), the SPEC (typed boundaries, ADRs, proposed checks) and a vertical-slice plan. Each slice is one reply: tests, code, docs.",
   continue: "Use on a project chatop already manages (or one you adopted). The packet carries every prior decision, the slices, SPEC/AS-BUILT and the repo map, so the feature extends the system instead of reinventing it. This transcript includes a failing attempt and its code-only fix.",
   adopt: "Use for code other agents wrote that looks healthy (tests exist and a test command is detected). Local recon (agent fingerprints, instruction files, hotspots, codegraph map) feeds an AS-BUILT document. Then add features.",
+  parallel: "Use once the plan has independent slices. The approved plan becomes issues; chatop opens one chat per independent issue (full packets), routes each pasted reply by its header, lints all generated files in one shot, keeps a failing chat's code out of the others' checks, and sends continuing chats small delta packets. Watch for: the rejected reply with two typos, the failing chat that does not block the other, and the delta packet sizes.",
   audit: "Use when quality is unknown: no tests, failing tests, or claims you can't verify. Audit produces a risk register and test-gap map; stabilization slices pin current behavior with characterization tests before any fix.",
 };
 let curLab = "new-project";
@@ -429,10 +488,13 @@ function renderLab() {
   if (!steps.length) { $("steps").innerHTML = '<p class="muted">No transcript embedded.</p>'; return; }
   $("steps").innerHTML = steps.filter((s) => !s.verb.startsWith("expect")).map((s) => {
     const note = s.comment ? `<div class="note">${esc(s.comment)}</div>` : "";
-    if (s.verb === "reply") {
-      return `<div class="step llm"><div class="who">LLM<br>turn ${s.turn}</div><div>${note}
-        <div class="cmd">You paste packet ${s.turn} (~${tok(s.packet).toLocaleString()} tokens); the LLM answers; you copy the block</div>
-        <details><summary>Packet ${s.turn}: exactly what gets pasted</summary><pre><button class="copy" type="button">Copy</button><code>${esc(s.packet)}</code></pre></details>
+    if (s.verb === "reply" || s.verb === "reply-rejected") {
+      const hm = /<<<CHATOP(?: chat=(\w+))?(?: turn=(\d+))?/.exec(s.reply || "");
+      const lbl = hm && hm[1] ? `chat ${hm[1]} · turn ${hm[2]}` : `turn ${s.turn}`;
+      const kind = /# CHATOP PACKET.* · (full|delta)\b/.exec(s.packet || "");
+      return `<div class="step llm"><div class="who">LLM<br>${esc(lbl)}</div><div>${note}
+        <div class="cmd">You paste packet ${esc(lbl)} (${kind ? kind[1] + ", " : ""}~${tok(s.packet).toLocaleString()} tokens); the LLM answers; you copy the block${s.verb === "reply-rejected" ? " (this reply will be REJECTED)" : ""}</div>
+        <details><summary>Packet ${esc(lbl)}: exactly what gets pasted</summary><pre><button class="copy" type="button">Copy</button><code>${esc(s.packet)}</code></pre></details>
         <details><summary>Reference reply</summary><pre><button class="copy" type="button">Copy</button><code>${esc(s.reply)}</code></pre></details>
         <div class="who" style="color:var(--chatop);margin-top:8px">chatop applies</div><pre>${esc((s.output || "").trim())}</pre></div></div>`;
     }
@@ -446,11 +508,11 @@ function renderLab() {
 /* ---------- architecture ---------- */
 const LAYERS = {
   ui: ["ui/: thin shells", "Parse input, call Session, render output. No business rules, so they are tested shallowly: CLI via main(argv, factory), web via TestClient, TUI via the Textual pilot.", "May import: app, domain.models (enums)."],
-  app: ["app/: Session facade", "Owns the use cases: build_packet, apply (two-stage TDD), answers, gates, feature, undo, watch_tick, status, doctor. Workspace confines file access to the repo root and owns .chatop/. Recon gathers cheap local facts (no LLM, no text grep). wiring.py is the only place that names concrete adapters.", "May import: domain, ports. Never adapters (except wiring.py)."],
-  domain: ["domain/: pure logic", "reply.py parses the envelope; changes.py validates paths and resolves SEARCH/REPLACE in memory (all or nothing); packet.py cuts sections by priority to the token budget; workflow.py defines tracks, gates and the slice loop.", "May import: stdlib and domain only. 100% unit-testable without I/O."],
+  app: ["app/: Session facade", "Owns the use cases: build_packet, apply (batch preflight, then two-stage TDD), answers, gates, feature, undo, watch_tick, status, doctor. lanes.py (LaneEngine) adds parallel chats: dispatch, header routing, delta packets, per-chat overlays, events and the board. Workspace confines file access to the repo root and owns .chatop/. Recon gathers cheap local facts (no LLM, no text grep). wiring.py is the only place that names concrete adapters.", "May import: domain, ports. Never adapters (except wiring.py)."],
+  domain: ["domain/: pure logic", "reply.py parses the envelope (and its chat/turn header); changes.py validates paths and resolves SEARCH/REPLACE in memory (all or nothing); packet.py cuts sections by priority to the token budget; workflow.py defines tracks, gates and the slice loop; preflight.py lints every file at once; scheduler.py picks issues for chats; delta.py decides what a continuing chat still needs; tdd.py judges a slice.", "May import: stdlib and domain only. 100% unit-testable without I/O."],
   ports: ["ports.py: Protocols", "CodeIndex, Clipboard, Runner, Vcs. These four narrow interfaces are the only way the core touches the outside world.", "Imports: stdlib only."],
   adapters: ["adapters/: one per external system", "codegraph.py wraps the CLI with schema-tolerant JSON parsing. clipboard.py covers pbcopy, wl-copy, xclip, xsel and a file fallback. runner.py runs only configured checks (no bytecode, to avoid stale .pyc). git.py commits, lists files, and reports churn and log.", "May import: ports, stdlib."],
-  tests: ["tests/: TDD at every layer", "62 tests: domain unit, adapter contract (injected exec), Session use cases against real git and pytest in temp dirs, UI shells, and all four labs replayed end to end.", "Fakes implement the same Protocols, so the contract is shared."],
+  tests: ["tests/: TDD at every layer", "145 tests: domain unit, adapter contract (injected exec), Session and lane use cases against real git and pytest in temp dirs, UI shells, all five labs replayed end to end, and the mock UI scenario run under node.", "Fakes implement the same Protocols, so the contract is shared."],
 };
 function showLayer(k) {
   document.querySelectorAll(".layer").forEach((g) => g.classList.toggle("sel", g.dataset.k === k));
@@ -476,7 +538,21 @@ function drawStateMachine() {
 }
 
 /* ---------- reply parser (port of chatop/domain/reply.py + path guard) ---------- */
-const START = /^<<<CHATOP(?:\s+turn=(\d+))?\s*>>>\s*$/;
+const START = /^<<<CHATOP((?:\s+[a-z]+=[\w-]+)*)\s*>>>\s*$/;
+function hdr(line) { const m = line.trim().match(START); if (!m) return null; const a = {}; (m[1].match(/([a-z]+)=([\w-]+)/g) || []).forEach((p) => { const [k, v] = p.split("="); a[k] = v; }); return { chat: a.chat || null, turn: a.turn ? +a.turn : null }; }
+/* heuristic port of the built-in preflight (the real one uses Python's ast): bracket balance for .py, JSON.parse for .json */
+function preflight(path, text) {
+  if (path.endsWith(".json")) { try { JSON.parse(text); } catch (e) { return [path + ": invalid JSON: " + e.message]; } return []; }
+  if (!path.endsWith(".py")) return [];
+  const stack = [], pairs = { ")": "(", "]": "[", "}": "{" }; let line = 1;
+  const clean = text.replace(/"""[\s\S]*?"""|'''[\s\S]*?'''|"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|#[^\n]*/g, (m) => m.replace(/[^\n]/g, " "));
+  for (const ch of clean) {
+    if (ch === "\n") line++;
+    else if ("([{".includes(ch)) stack.push([ch, line]);
+    else if (")]}".includes(ch)) { if (!stack.length || stack[stack.length - 1][0] !== pairs[ch]) return [path + ":" + line + ": SyntaxError: unmatched '" + ch + "'"]; stack.pop(); }
+  }
+  return stack.length ? [path + ":" + stack[0][1] + ": SyntaxError: '" + stack[0][0] + "' was never closed"] : [];
+}
 const BLOCK = new Set(["file", "test", "doc", "edit", "ask", "slices"]);
 const INLINE = new Set(["summary", "delete", "need", "decision", "run", "advance", "check"]);
 const NEEDS = ["symbol", "file", "callers", "callees", "impact", "affected"];
@@ -489,12 +565,12 @@ function guard(p) {
   const n = parts.join("/"); if (PROTECTED.some((r) => r.test(n))) return "protected path"; return "";
 }
 function parseReply(text) {
-  const r = { turn: null, summary: "", ops: [], questions: [], needs: [], slices: null, decisions: [], runs: [], checks: {}, advance: false, errors: [] };
+  const r = { turn: null, chat: null, summary: "", ops: [], questions: [], needs: [], slices: null, decisions: [], runs: [], checks: {}, advance: false, errors: [], lint: [] };
   const L = text.replace(/\r\n?/g, "\n").split("\n");
   if (/^\s*#\s*CHATOP PACKET/m.test(text.slice(0, 2000))) { r.errors.push("This is a chatop PACKET, not a reply."); return r; }
   const s = L.findIndex((l) => START.test(l.trim()));
   if (s < 0) { r.errors.push("No <<<CHATOP turn=N>>> block found."); return r; }
-  const m = L[s].trim().match(START); r.turn = m[1] ? +m[1] : null;
+  const hd = hdr(L[s]); r.turn = hd.turn; r.chat = hd.chat;
   let e = L.findIndex((l, i) => i > s && l.trim() === "<<<END>>>");
   if (e < 0) { r.errors.push("Reply looks truncated (missing <<<END>>>)."); e = L.length; }
   for (let i = s + 1; i < e; i++) {
@@ -504,7 +580,7 @@ function parseReply(text) {
       let j = i + 1; while (j < e && L[j].trimEnd() !== "@@end") j++;
       if (j >= e) { r.errors.push(`@@${name} ${arg}: block not closed with @@end`); break; }
       const body = L.slice(i + 1, j);
-      if (["file", "test", "doc"].includes(name)) { const g = guard(arg); if (g) r.errors.push(`${arg}: ${g}`); r.ops.push({ kind: "write", path: arg, role: name === "test" ? "test" : name === "doc" ? "doc" : role(arg), lines: body.length }); }
+      if (["file", "test", "doc"].includes(name)) { const g = guard(arg); if (g) r.errors.push(`${arg}: ${g}`); r.ops.push({ kind: "write", path: arg, role: name === "test" ? "test" : name === "doc" ? "doc" : role(arg), lines: body.length }); r.lint.push(...preflight(arg, body.join("\n"))); }
       else if (name === "edit") { const n = body.filter((b) => b.startsWith("<<<<<<< SEARCH")).length; const g = guard(arg); if (g) r.errors.push(`${arg}: ${g}`); if (!n) r.errors.push(`@@edit ${arg}: malformed SEARCH/REPLACE block`); r.ops.push({ kind: "edit", path: arg, role: role(arg), lines: n + " block(s)" }); }
       else if (name === "ask") { const opts = body.filter((b) => /^\s*[-*]\s*\[( |x|X)\]/.test(b)); r.questions.push({ id: arg.split(/\s+/)[0] || "q", text: body.filter((b) => b.trim() && !opts.includes(b)).join(" "), options: opts.map((o) => o.replace(/^\s*[-*]\s*\[( |x|X)\]\s*/, "")), rec: opts.filter((o) => /\[[xX]\]/.test(o)).length }); }
       else if (name === "slices") { try { const v = JSON.parse(body.join("\n")); if (!Array.isArray(v)) throw new Error("expected a JSON array"); r.slices = v; } catch (err) { r.errors.push("@@slices: invalid JSON (" + err.message + ")"); } }
@@ -520,12 +596,14 @@ function parseReply(text) {
       else if (name === "need") { const k = arg.split(" ")[0]; const t = arg.slice(k.length).trim(); if (!NEEDS.includes(k) || !t) r.errors.push(`@@need ${arg}: kind must be one of ${NEEDS.join(", ")}`); else r.needs.push(k + " " + t); }
     } else if (name !== "end") r.errors.push(`Unknown directive @@${name}`);
   }
+  if (r.lint.length) r.errors.push(...r.lint);
   return r;
 }
 function renderParsed() {
   const r = parseReply($("replyIn").value);
   const ok = !r.errors.length;
-  let h = `<div><strong class="${ok ? "ok" : "bad"}">${ok ? "Would apply" : "Rejected: nothing changes; a repair prompt goes to your clipboard"}</strong>${r.turn !== null ? ` · turn ${r.turn}` : ""}</div>`;
+  let h = `<div><strong class="${ok ? "ok" : "bad"}">${ok ? "Would apply" : "Rejected: nothing changes; a repair prompt goes to your clipboard"}</strong>${r.chat ? ` · routed to chat <b>${esc(r.chat)}</b>` : ""}${r.turn !== null ? ` · turn ${r.turn}` : ""}</div>`;
+  if (r.lint.length > 1) h += `<div class="callout">Preflight found <b>${r.lint.length}</b> syntax problems. They are all reported in ONE repair prompt, not one per round trip.</div>`;
   if (r.errors.length) h += "<ul>" + r.errors.map((e) => `<li class="bad">${esc(e)}</li>`).join("") + "</ul>";
   if (r.summary) h += `<p><em>${esc(r.summary)}</em></p>`;
   if (r.ops.length) {
@@ -572,7 +650,9 @@ const ANN = {
   "src/chatop/domain/reply.py": "envelope parser (LLM → chatop boundary)", "src/chatop/domain/changes.py": "path guard + in-memory SEARCH/REPLACE",
   "src/chatop/domain/packet.py": "token-budgeted packet assembly (chatop → LLM boundary)", "src/chatop/domain/workflow.py": "tracks, gates, slice loop",
   "src/chatop/domain/models.py": "State, Slice, Question, Need", "src/chatop/ports.py": "the 4 narrow Protocols",
-  "src/chatop/app/session.py": "the facade every UI calls", "src/chatop/app/recon.py": "LLM-free reconnaissance", "src/chatop/app/wiring.py": "composition root",
+  "src/chatop/app/session.py": "the facade every UI calls", "src/chatop/app/lanes.py": "parallel chats: dispatch, routing, delta packets, overlays", "src/chatop/domain/scheduler.py": "which issues run together, which chat takes the next",
+  "src/chatop/domain/delta.py": "what a continuing chat still needs", "src/chatop/domain/preflight.py": "one-shot syntax check of all generated files", "src/chatop/domain/tdd.py": "slice verdict (serial and parallel)",
+  "mock/backend.js": "in-browser fake backend (tested with node)", "docs/chatop-mock-ui.html": "standalone mock UI: hub + project page + chat tabs", "src/chatop/domain/stage.py": "who acts next: stage and owner of every chat", "docs/UX.md": "the relay stages and the UX laws applied", "mock/browser.test.js": "drives the mock in a real browser", "src/chatop/app/recon.py": "LLM-free reconnaissance", "src/chatop/app/wiring.py": "composition root",
   "src/chatop/adapters/codegraph.py": "codegraph CLI adapter", "src/chatop/ui/cli.py": "chatop command", "src/chatop/ui/tui.py": "Textual TUI", "src/chatop/ui/web.py": "FastAPI web UI",
   "labs/run_lab.py": "replay or show a lab", "scripts/build_playbook.py": "builds this page", "docs/chatop-playbook.html": "this page",
 };
@@ -594,13 +674,102 @@ function setupDocs() {
   const start = arch.indexOf("## Boundary surfaces"), end = arch.indexOf("## One turn");
   $("archdoc").innerHTML = md(arch.slice(start, end).replace(/^## .*\n/, ""), 1) + md(arch.slice(arch.indexOf("## Data layout")), 1);
   $("gs").innerHTML = md(DATA.docs["GETTING-STARTED.md"].replace(/^# .*\n/, ""), 1);
+  $("uxdoc").innerHTML = md(DATA.docs["UX.md"].replace(/^# .*\n/, ""), 3);
   $("labsdoc").innerHTML = md(DATA.docs["LABS.md"].replace(/^# .*\n/, ""), 1);
   $("pb").innerHTML = md(DATA.docs["PLAYBOOK.md"].replace(/^# .*\n/, ""), 1);
 }
 
+
+/* ---------- parallel relay: plan simulator (same rules as domain/scheduler.py and app/lanes.py) ---------- */
+const SIM_DEFAULT = [
+  ["S0", "", "pyproject.toml, src/pkg/__init__.py", 6], ["S1", "S0", "src/pkg/convert.py", 10], ["S2", "S0", "src/pkg/align.py", 8],
+  ["S3", "S1, S2", "src/pkg/cli.py, src/pkg/convert.py, src/pkg/align.py", 9], ["S4", "S0", "README.md", 5], ["S5", "S3", "pyproject.toml", 6],
+];
+let simRows = SIM_DEFAULT.map((r) => ({ id: r[0], deps: r[1], touches: r[2], min: r[3] }));
+const csv = (t) => t.split(",").map((x) => x.trim()).filter(Boolean);
+function simOverlap(a, b) { if (!a.length || !b.length) return true; return a.some((x) => b.some((y) => x === y || y.startsWith(x + "/") || x.startsWith(y + "/"))); }
+function simulate(rows, maxPar, relay) {
+  const iss = rows.map((r) => ({ id: r.id.trim(), deps: csv(r.deps), touches: csv(r.touches), min: Math.max(1, +r.min || 1), done: false, started: false }));
+  const ids = new Set(iss.map((i) => i.id));
+  for (const i of iss) for (const d of i.deps) if (!ids.has(d)) return { error: `${i.id} depends on unknown issue ${d}` };
+  const chats = [], bars = []; let t = 0, running = [];
+  const serial = iss.reduce((a, i) => a + i.min + relay, 0);
+  while (iss.some((i) => !i.done)) {
+    const doneIds = new Set(iss.filter((i) => i.done).map((i) => i.id));
+    for (const i of iss) {
+      if (i.started || running.length >= maxPar || !i.deps.every((d) => doneIds.has(d))) continue;
+      if (running.some((r) => simOverlap(i.touches, r.issue.touches))) continue;
+      let chat = null, best = 0;
+      for (const c of chats) { if (c.busy || c.n >= 3) continue; const sc = i.touches.filter((x) => c.seen.has(x)).length; if (sc > best) { best = sc; chat = c; } }
+      const kind = chat ? "delta" : "full";
+      if (!chat) { chat = { id: "c" + (chats.length + 1), busy: false, seen: new Set(), n: 0 }; chats.push(chat); }
+      chat.busy = true; i.started = true;
+      const run = { issue: i, chat, start: t, end: t + relay + i.min, kind }; running.push(run); bars.push(run);
+    }
+    if (!running.length) return { error: "dependency cycle or nothing runnable: " + iss.filter((i) => !i.done).map((i) => i.id).join(", ") };
+    t = Math.min(...running.map((r) => r.end));
+    for (const r of running.filter((x) => x.end <= t)) { r.issue.done = true; r.chat.busy = false; r.chat.n++; r.issue.touches.forEach((x) => r.chat.seen.add(x)); }
+    running = running.filter((r) => r.end > t);
+  }
+  return { bars, chats, makespan: t, serial };
+}
+function renderSim() {
+  const maxPar = +$("simPar").value, relay = +$("simRelay").value; $("simParV").textContent = maxPar;
+  const res = simulate(simRows, maxPar, relay);
+  if (res.error) { $("simStats").innerHTML = ""; $("simGantt").innerHTML = ""; $("simMsg").innerHTML = `<span class="bad">${esc(res.error)}</span>`; return; }
+  const wide = simulate(simRows, 99, relay);
+  const width = wide.error ? 0 : Math.max(...wide.bars.map((b) => wide.bars.filter((o) => o.start < b.end && o.end > b.start).length));
+  $("simStats").innerHTML = `<b>${res.makespan} min</b> with ${maxPar} chat(s) at once, against <b>${res.serial} min</b> serial: <b>${(res.serial / res.makespan).toFixed(2)}×</b> faster · ${res.chats.length} chat(s) opened · ${res.bars.filter((b) => b.kind === "delta").length} delta packet(s) · plan width ${width}`;
+  const W = 640, row = 30, H = res.chats.length * row + 28, sx = (W - 60) / res.makespan;
+  let svg = `<svg class="gantt" viewBox="0 0 ${W} ${H}" role="img" aria-label="Timeline of issues per chat">`;
+  res.chats.forEach((c, i) => { const y = 8 + i * row; svg += `<line class="lane" x1="50" x2="${W}" y1="${y + 24}" y2="${y + 24}"/><text x="4" y="${y + 16}">${c.id}</text>`; });
+  for (const b of res.bars) { const i = +b.chat.id.slice(1) - 1, x = 50 + b.start * sx, w = Math.max(14, (b.end - b.start) * sx - 2); svg += `<rect class="${b.kind}" x="${x}" y="${8 + i * row}" width="${w}" height="22" rx="4"><title>${esc(b.issue.id)}: ${b.start}–${b.end} min (${b.kind} packet)</title></rect><text x="${x + 4}" y="${8 + i * row + 15}" style="fill:#fff">${esc(b.issue.id)}</text>`; }
+  svg += `<text x="50" y="${H - 4}">0</text><text x="${W - 40}" y="${H - 4}">${res.makespan} min</text></svg>`;
+  $("simGantt").innerHTML = svg;
+  const hints = [];
+  if (width > maxPar) hints.push(`The plan allows ${width} chats at once; you are using ${maxPar}. Raise <code>max_parallel</code>.`);
+  if (width <= 1) hints.push("This plan is a chain: nothing can overlap. Ask the planner for independent slices (split by file, depend only on interfaces).");
+  hints.push(`Legend: <span style="color:var(--chatop)">■</span> full packet (new chat) · <span style="color:var(--llm)">■</span> delta packet (chat reused because it already holds that file). Best case for this plan: ${wide.error ? "n/a" : wide.makespan + " min"}.`);
+  $("simMsg").innerHTML = hints.join("<br>");
+}
+function setupSim() {
+  const draw = () => {
+    $("simPlan").innerHTML = "<thead><tr><th>id</th><th>depends</th><th>touches</th><th>LLM min</th></tr></thead><tbody>" + simRows.map((r, i) =>
+      `<tr><td><b>${esc(r.id)}</b></td><td><input type="text" aria-label="depends of ${esc(r.id)}" data-i="${i}" data-k="deps" value="${esc(r.deps)}"></td><td><input type="text" aria-label="touches of ${esc(r.id)}" data-i="${i}" data-k="touches" value="${esc(r.touches)}"></td><td><input type="number" min="1" aria-label="minutes of ${esc(r.id)}" data-i="${i}" data-k="min" value="${r.min}"></td></tr>`).join("") + "</tbody>";
+    $("simPlan").querySelectorAll("input").forEach((el) => el.addEventListener("input", () => { simRows[+el.dataset.i][el.dataset.k] = el.value; renderSim(); }));
+  };
+  $("simPar").oninput = renderSim; $("simRelay").oninput = renderSim;
+  $("simReset").onclick = () => { simRows = SIM_DEFAULT.map((r) => ({ id: r[0], deps: r[1], touches: r[2], min: r[3] })); draw(); renderSim(); };
+  draw(); renderSim();
+}
+function setupDeltaBars() {
+  const steps = (DATA.labs["parallel-relay"] || []);
+  const rows = [];
+  for (const s of steps) {
+    for (const o of (s.output || "").split("\n")) {
+      const m = /packet for chat (\w+), turn (\d+), (full|delta): ~([\d,]+) tokens(?: \(a full packet would be ~([\d,]+)\))?/.exec(o);
+      if (m) rows.push({ label: `${m[1]} turn ${m[2]}`, kind: m[3], t: +m[4].replace(/,/g, ""), f: m[5] ? +m[5].replace(/,/g, "") : +m[4].replace(/,/g, "") });
+    }
+  }
+  const seen = new Set(), uniq = rows.filter((r) => !seen.has(r.label) && seen.add(r.label));
+  if (!uniq.length) { $("deltaBars").innerHTML = '<span class="muted">No packet measurements found in the embedded lab.</span>'; return; }
+  const max = Math.max(...uniq.map((r) => r.f));
+  const sent = uniq.reduce((a, r) => a + r.t, 0), full = uniq.reduce((a, r) => a + r.f, 0);
+  $("deltaBars").innerHTML = uniq.map((r) => `<div class="dbar"><span><code>${esc(r.label)}</code> ${r.kind}</span><span class="track ${r.kind === "delta" ? "d" : ""}"><i style="width:${Math.max(2, Math.round(100 * r.t / max))}%"></i></span><span class="muted">~${r.t.toLocaleString()}${r.kind === "delta" ? " of ~" + r.f.toLocaleString() : ""} tok</span></div>`).join("") +
+    `<p style="margin:8px 0 0"><b>${sent.toLocaleString()}</b> tokens sent against <b>${full.toLocaleString()}</b> if every packet were full: <b>${Math.round(100 * (full - sent) / full)}%</b> saved, and the saving grows with the size of the SPEC and the repo.</p>`;
+}
+function setupMock() {
+  $("mockLaunch").onclick = () => {
+    if (!DATA.mock) { $("mockBox").innerHTML = '<p class="bad">Mock UI not embedded: build with scripts/build_playbook.py.</p>'; return; }
+    $("mockBox").innerHTML = '<iframe title="chatop parallel relay mock"></iframe>';
+    $("mockBox").firstChild.srcdoc = DATA.mock;
+    $("mockLaunch").textContent = "Restart the mock";
+  };
+}
+
 if (DATA) {
   renderMetrics(); renderTrackPick(); renderLab(); showLayer("app"); drawStateMachine();
-  setupPlayground(); setupPrompts(); setupTree(); setupDocs();
+  setupPlayground(); setupPrompts(); setupTree(); setupDocs(); setupSim(); setupDeltaBars(); setupMock();
 } else {
   document.querySelector("main").insertAdjacentHTML("afterbegin", '<p class="bad">Template only: run scripts/build_playbook.py.</p>');
 }
