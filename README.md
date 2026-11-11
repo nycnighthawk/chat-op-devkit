@@ -18,6 +18,10 @@ and all code search goes through the [`codegraph`](https://github.com/colbymchen
   design seed, eleven slices in five waves built by parallel chats, a black-box conformance oracle
   (`bootstrap/accept.py`), then chatop adopts itself and builds its own UIs. Includes a progress board and a
   downloadable kit. Rebuild it with `python scripts/build_bootstrap.py`; see [bootstrap/README.md](bootstrap/README.md).
+* **Spec for agents and integrators:** [PRD](docs/PRD.md) · [Design](docs/DESIGN.md) (modules, requirement-to-test traceability,
+  how to incorporate chatop into an existing product) · [Behavior contract](docs/BEHAVIOR.md) ·
+  [one-file bundle](docs/SPEC-BUNDLE.md) · [agent prompts](docs/AGENT-PROMPTS.md). The same documents are Part I of the bootstrap page,
+  which also extracts them back to markdown with one command.
 * Markdown versions: [Getting started](docs/GETTING-STARTED.md) · [Playbook](docs/PLAYBOOK.md) ·
   [Mock UI](docs/chatop-mock-ui.html) · [Labs](docs/LABS.md) · [Architecture](docs/ARCHITECTURE.md) · [Decisions (ADRs)](docs/DECISIONS.md)
 

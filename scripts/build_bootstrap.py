@@ -36,6 +36,8 @@ def render() -> str:
 SEED = ROOT / "bootstrap" / "seed"
 HEADER = "<<<CHATOP chat=c0 turn=0>>>"
 DESIGN_DOCS = {
+    "docs/PRD.md": ROOT / "docs" / "PRD.md",
+    "docs/DESIGN.md": ROOT / "docs" / "DESIGN.md",
     "docs/ARCHITECTURE.md": ROOT / "docs" / "ARCHITECTURE.md",
     "docs/DECISIONS.md": ROOT / "docs" / "DECISIONS.md",
     "docs/UX.md": ROOT / "docs" / "UX.md",
@@ -72,7 +74,9 @@ def seed_replies() -> dict[str, str]:
         if embeddable(p.read_text())
     ]
     return {
-        "seed-design.reply.md": reply("seed: architecture, decisions, UX, behavior contract and reference plan", docs),
+        "seed-design.reply.md": reply(
+            "seed: PRD, design, architecture, decisions, UX, behavior contract and reference plan", docs
+        ),
         "seed-prompts.reply.md": reply("seed: the prompt files chatop renders into packets", prompts),
     }
 
@@ -131,8 +135,71 @@ def parse_plan(text: str) -> list[dict[str, object]]:
     return out
 
 
+BUNDLE_HEADER = (
+    "# chatop spec bundle\n\n"
+    "Every spec file below is delimited by `<!-- BEGIN FILE: path -->` and\n"
+    "`<!-- END FILE: path -->`; extract by those markers. Read in this order: PRD, DESIGN,\n"
+    "ARCHITECTURE, BEHAVIOR, DECISIONS, UX. Requirement ids (FR-n, NFR-n, UC-n, R-n) are stable\n"
+    "and are the scope of any implementation or integration.\n"
+)
+
+
+def spec_sources() -> list[tuple[str, str, str, str]]:
+    """(name, path, role, text) for every spec document; BEHAVIOR's source of truth is bootstrap/seed."""
+    import bootstrap_plays as bp
+
+    out = []
+    for name, path, role in bp.SPEC_DOCS:
+        src = SEED / "BEHAVIOR.md" if path == "docs/BEHAVIOR.md" else ROOT / path
+        out.append((name, path, role, src.read_text()))
+    return out
+
+
+def bundle_text(docs: list[tuple[str, str, str, str]]) -> str:
+    parts = [f"<!-- BEGIN FILE: {p} -->\n{t.rstrip(chr(10))}\n<!-- END FILE: {p} -->\n" for _, p, _, t in docs]
+    return BUNDLE_HEADER + "\n" + "\n".join(parts)
+
+
+def agent_prompts_text() -> str:
+    import bootstrap_plays as bp
+
+    out = ["# Agent prompts\n\nCopy-paste prompts for a coding agent or a chat. Attach `SPEC-BUNDLE.md`.\n"]
+    for a in bp.AGENT_PROMPTS:
+        out.append(f"## {a['title']}\n\n{a['when']}\n\n```text\n{a['text']}\n```\n")
+    return "\n".join(out)
+
+
+def manifest(docs: list[tuple[str, str, str, str]]) -> list[dict[str, object]]:
+    rows = []
+    for name, path, role, text in docs:
+        ids = {k: len(set(re.findall(rf"\b{k}-\d+\b", text))) for k in ("FR", "NFR", "UC", "R", "ADR")}
+        rows.append(
+            {
+                "name": name,
+                "path": path,
+                "role": role,
+                "bytes": len(text.encode()),
+                "ids": {k: v for k, v in ids.items() if v},
+            }
+        )
+    return rows
+
+
+def spec_scripts(docs: list[tuple[str, str, str, str]]) -> str:
+    out = []
+    for _, path, _, text in docs:
+        for bad in ("<!--__", "</script"):
+            if bad in text:
+                raise SystemExit(f"{path} contains {bad!r}; cannot embed")
+        body = text.rstrip("\n").replace("</", "<\\/")
+        out.append(f'<script type="text/markdown" data-path="{path}">\n{body}\n</script>')
+    return "\n".join(out)
+
+
 def plays_html(files: dict[Path, str]) -> str:
     import bootstrap_plays as bp
+
+    docs = spec_sources()
 
     kit = [
         {"zip_path": z, "role": role, "text": files[ROOT / src] if (ROOT / src) in files else (ROOT / src).read_text()}
@@ -148,9 +215,14 @@ def plays_html(files: dict[Path, str]) -> str:
         "budget": bp.BUDGET,
         "failures": bp.FAILURES,
         "unverified": bp.UNVERIFIED,
+        "spec": manifest(docs),
+        "agent_prompts": bp.AGENT_PROMPTS,
+        "extract_py": bp.EXTRACT_PY,
+        "bundle_header": BUNDLE_HEADER,
     }
     payload = json.dumps(data, sort_keys=True).replace("</", "<\\/")
-    return PLAYS_TEMPLATE.read_text().replace("/*__BOOTSTRAP_DATA__*/null", payload)
+    page = PLAYS_TEMPLATE.read_text().replace("<!--__SPEC_SCRIPTS__-->", spec_scripts(docs))
+    return page.replace("/*__BOOTSTRAP_DATA__*/null", payload)
 
 
 def main() -> int:
@@ -162,6 +234,10 @@ def main() -> int:
     wanted |= {SEED / "raw" / p.name: p.read_text() for p in raw_prompts()}
     wanted[SEED / "BRIEF.md"] = bp.BRIEF
     wanted[SEED / "features" / "ui.txt"] = bp.FEATURE_UI + "\n"
+    docs = spec_sources()
+    wanted[ROOT / "docs" / "BEHAVIOR.md"] = (SEED / "BEHAVIOR.md").read_text()
+    wanted[ROOT / "docs" / "SPEC-BUNDLE.md"] = bundle_text(docs)
+    wanted[ROOT / "docs" / "AGENT-PROMPTS.md"] = agent_prompts_text()
     wanted[PLAYS_OUT] = plays_html(wanted)
     if "--check" in sys.argv:
         return 0 if all(p.exists() and p.read_text() == t for p, t in wanted.items()) else 1

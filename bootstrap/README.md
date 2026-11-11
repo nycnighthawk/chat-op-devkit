@@ -13,7 +13,7 @@ Everything needed to rebuild chatop from an empty folder without a coding agent.
 | `seed/` | behavior contract, 11-slice plan, ready-to-apply replies for the design docs and prompts, brief, feature text |
 | `kit/` | skeleton `pyproject.toml` and `.gitignore` for the new repo |
 
-`seed/*.reply.md`, `seed/raw/`, `seed/BRIEF.md`, `seed/features/` and `accept.py` are generated:
+`docs/SPEC-BUNDLE.md`, `docs/AGENT-PROMPTS.md` and `docs/BEHAVIOR.md` are generated too. `seed/*.reply.md`, `seed/raw/`, `seed/BRIEF.md`, `seed/features/` and `accept.py` are generated:
 `python scripts/build_bootstrap.py` (and `--check`, which the tests run). Edit `seed/BEHAVIOR.md`, `seed/PLAN.md`,
 `scripts/bootstrap_plays.py` (the plays) or `docs/bootstrap-plays.template.html`, then rebuild.
 

@@ -82,6 +82,7 @@ def test_relay_commands_in_plays_parse_with_the_real_cli() -> None:
     spec = importlib.util.spec_from_file_location("relay", ROOT / "bootstrap" / "relay.py")
     assert spec and spec.loader
     relay = importlib.util.module_from_spec(spec)
+    sys.modules["relay"] = relay  # dataclasses resolve string annotations through sys.modules
     spec.loader.exec_module(relay)
     import shlex
 
@@ -103,6 +104,44 @@ def test_relay_commands_in_plays_parse_with_the_real_cli() -> None:
     assert checked >= 15
 
 
+def test_spec_documents_are_embedded_verbatim_and_extractable(tmp_path: Path) -> None:
+    """The documented one-command extractor turns the page back into the exact markdown files."""
+    out = tmp_path / "spec"
+    r = subprocess.run(
+        ["python3", "-c", "import sys;exec(sys.stdin.read())", str(HTML), str(out)],
+        input=_extract_body(),
+        capture_output=True,
+        text=True,
+    )
+    assert r.returncode == 0, r.stderr
+    for _, path, _, text in bb.spec_sources():
+        assert (out / path).read_text().rstrip("\n") == text.rstrip("\n"), path
+    assert len(list(out.rglob("*.md"))) == 6
+
+
+def _extract_body() -> str:
+    """The python between the heredoc markers of bp.EXTRACT_PY, run with sys.argv = [-c, html, out]."""
+    lines = bp.EXTRACT_PY.splitlines()
+    return "\n".join(lines[1:-1]).replace("sys.argv[1]", "sys.argv[1]")
+
+
+def test_prd_ids_are_well_formed_and_fully_traced_in_the_design() -> None:
+    prd = (ROOT / "docs" / "PRD.md").read_text()
+    design = (ROOT / "docs" / "DESIGN.md").read_text()
+    rows = re.findall(r"^\| (FR-\d+) \| .*? \| ([MSC]) \|", prd, re.M)
+    ids = [i for i, _ in rows]
+    assert len(ids) >= 40 and len(set(ids)) == len(ids)
+    assert sorted(ids, key=lambda x: int(x[3:])) == ids, "FR ids must stay in ascending order"
+    trace = design.split("## 4. Traceability")[1].split("## 5.")[0]
+    traced = set(re.findall(r"^\| (FR-\d+) ", trace, re.M))
+    assert traced == set(ids), f"untraced: {set(ids) - traced}; unknown: {traced - set(ids)}"
+    for nfr in re.findall(r"^\| (NFR-\d+) ", prd, re.M):
+        assert nfr in prd
+    # every labs name the PRD cites exists
+    labs = {p.name for p in (ROOT / "labs").iterdir() if p.is_dir()}
+    assert set(re.findall(r"`((?:new-project|continue-feature|adopt|audit|parallel-relay))`", prd)) <= labs
+
+
 HAVE_BROWSER = bool(os.environ.get("CHROME") or shutil.which("google-chrome") or shutil.which("chromium"))
 NODE_PATH = os.environ.get("NODE_PATH") or "/opt/npm-tools/node_modules"
 
@@ -121,6 +160,20 @@ def test_browser_walkthrough_and_zip_download() -> None:
     )
     assert r.returncode == 0, r.stdout + r.stderr
     zpath = Path(r.stdout.strip().rsplit("zip at ", 1)[1])
+    spec_zip = Path(Path(os.environ.get("TMPDIR", "/tmp"), "plays-spec-path.txt").read_text())
+    with zipfile.ZipFile(spec_zip) as sz:
+        assert sz.testzip() is None
+        assert set(sz.namelist()) == {
+            "docs/PRD.md",
+            "docs/DESIGN.md",
+            "docs/ARCHITECTURE.md",
+            "docs/BEHAVIOR.md",
+            "docs/DECISIONS.md",
+            "docs/UX.md",
+            "docs/SPEC-BUNDLE.md",
+            "docs/AGENT-PROMPTS.md",
+        }
+        assert sz.read("docs/PRD.md").decode() == (ROOT / "docs" / "PRD.md").read_text()
     with zipfile.ZipFile(zpath) as z:
         assert z.testzip() is None
         names = z.namelist()

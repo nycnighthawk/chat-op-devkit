@@ -148,7 +148,7 @@ def test_seed_replies_apply_with_the_kernel_and_the_plan_is_packable(tmp_path: P
             text=True,
         )
         assert r.returncode == 0, r.stdout + r.stderr
-    for doc in ("ARCHITECTURE", "DECISIONS", "UX", "BEHAVIOR", "PLAN"):
+    for doc in ("PRD", "DESIGN", "ARCHITECTURE", "DECISIONS", "UX", "BEHAVIOR", "PLAN"):
         assert (tmp_path / "docs" / f"{doc}.md").exists()
     # every prompt except the one that describes the envelope itself travels in the reply; that one is a raw copy
     sent = {p.name for p in (tmp_path / "src" / "chatop" / "prompts").glob("*.md")}

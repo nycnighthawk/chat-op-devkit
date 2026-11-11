@@ -223,7 +223,7 @@ ACTS: list[dict[str, Any]] = [
     {
         "id": "act2",
         "title": "Act 2. Seed the design",
-        "goal": "docs/ARCHITECTURE, DECISIONS, UX, BEHAVIOR and PLAN, the prompt files, and the codegraph CLI notes are committed.",
+        "goal": "docs/PRD, DESIGN, ARCHITECTURE, DECISIONS, UX, BEHAVIOR and PLAN, the prompt files, and the codegraph CLI notes are committed.",
         "plays": [
             {
                 "id": "2.1",
@@ -233,15 +233,15 @@ ACTS: list[dict[str, Any]] = [
                 "do": [
                     "The seed is itself a reply file, so it goes in through the kernel like everything else (a docs-only "
                     "reply: no tests, one commit).",
-                    "Read `docs/BEHAVIOR.md` and `docs/PLAN.md` now (ten minutes). They are the contract and the plan "
-                    "the next acts build against. This is your design gate: change them here if you disagree, "
+                    "Read `docs/PRD.md`, `docs/BEHAVIOR.md` and `docs/PLAN.md` now (fifteen minutes; Part I of this page shows the same "
+                    "documents). They are the product, the contract and the plan the next acts build against. This is your design gate: change them here if you disagree, "
                     "before any code exists.",
                 ],
                 "cmds": [("apply", "relay apply bootstrap/seed/seed-design.reply.md")],
                 "expect": [
-                    "`OK: 5 file(s) changed, committed: seed: architecture, decisions, UX, behavior contract and reference plan`."
+                    "`OK: 7 file(s) changed, committed: seed: PRD, design, architecture, decisions, UX, behavior contract and reference plan`."
                 ],
-                "check": "ls docs   # ARCHITECTURE.md BEHAVIOR.md DECISIONS.md PLAN.md UX.md",
+                "check": "ls docs   # ARCHITECTURE.md BEHAVIOR.md DECISIONS.md DESIGN.md PLAN.md PRD.md UX.md",
             },
             {
                 "id": "2.1p",
@@ -249,25 +249,35 @@ ACTS: list[dict[str, Any]] = [
                 "where": "terminal + chat",
                 "mode": "purist",
                 "do": [
-                    "Same destination files, authored by a chat. Save the brief, then ask for the architecture "
-                    "and decisions, then for the behavior contract and the plan. You keep the fixed shape the "
+                    "Same destination files, authored by a chat. Save the brief, then ask for the PRD, then for the design, "
+                    "architecture and decisions, then for the behavior contract and the plan. Part I of this page has the reference "
+                    "versions: use them as a yardstick for what each document should contain. You keep the fixed shape the "
                     "later plays rely on: eleven slices `S1..S11`, waves A to E, `depends/touches/reads` bullets.",
                     "Read every doc the chat returns. Cut anything the brief does not need.",
                 ],
                 "paste": ("the brief (also in the kit as bootstrap/seed/BRIEF.md)", "BRIEF"),
                 "cmds": [
                     (
-                        "architecture + decisions",
+                        "PRD",
                         "cp bootstrap/seed/BRIEF.md docs/BRIEF.md\n"
-                        "relay pack --chat c0 --read docs/BRIEF.md --task 'Write docs/ARCHITECTURE.md (layers, import rule, "
-                        "ports, one turn end to end, parallel relay, state machine, data layout, testing strategy) and "
-                        "docs/DECISIONS.md (ADR style, one per major choice, with context, decision, consequences) for "
-                        "the project in docs/BRIEF.md. Use @@doc.'",
+                        "relay pack --chat c0 --read docs/BRIEF.md --task 'Write docs/PRD.md for the project in docs/BRIEF.md: "
+                        "summary, problem, personas P-n, goals and non-goals, constraints, use cases UC-n, functional requirements FR-n "
+                        "(table: id, requirement, priority, use case, verified by), non-functional requirements NFR-n, success measures "
+                        "(targets, not results), release scope, acceptance, risks R-n, open questions, glossary. Stable ids. Use @@doc.'",
+                    ),
+                    ("apply (then read it: this is your product gate)", "relay apply"),
+                    (
+                        "design + architecture + decisions",
+                        "relay pack --chat c0 --read docs/PRD.md --task 'Write docs/DESIGN.md (context diagram, principles, module map with "
+                        "the FR ids each module implements, a traceability table FR to module to test, data and state, extension recipes, "
+                        "how to incorporate it into an existing product at four adoption levels), docs/ARCHITECTURE.md (layers and the import "
+                        "rule, boundary surfaces, one turn end to end, parallel relay, state machine, data layout, testing strategy) and "
+                        "docs/DECISIONS.md (ADR style: context, decision, alternatives, consequences). Use @@doc.'",
                     ),
                     ("apply", "relay apply"),
                     (
                         "behavior + plan",
-                        "relay pack --chat c0 --read docs/ARCHITECTURE.md --read docs/BRIEF.md --task 'Write docs/BEHAVIOR.md "
+                        "relay pack --chat c0 --read docs/PRD.md --read docs/ARCHITECTURE.md --task 'Write docs/BEHAVIOR.md "
                         "(CLI commands and exit codes, workflow tracks and gates, the status --json keys, the reply envelope "
                         "and the apply rules, parallel relay, file layout, ports) and docs/PLAN.md: eleven slices S1..S11 "
                         'as sections "## S1: title" with bullets depends:, touches:, reads:, goal:, acceptance:. Waves: '
@@ -278,7 +288,9 @@ ACTS: list[dict[str, Any]] = [
                     ),
                     ("apply", "relay apply"),
                 ],
-                "expect": ["Two commits; `docs/PLAN.md` has sections `## S1` to `## S11`."],
+                "expect": [
+                    "Three commits; `docs/PRD.md` has FR ids and `docs/PLAN.md` has sections `## S1` to `## S11`."
+                ],
                 "ifnot": [
                     "The plan drifts from the wave shape: `relay undo`, and repeat with the wave list in the task."
                 ],
@@ -779,4 +791,92 @@ UNVERIFIED: list[str] = [
     "against a live index in the environment where this kit was built (play 2.2 and failure case 10 cover it).",
     "The real system clipboard (pbcopy, xclip, wl-copy) was not exercised in the build environment; the file-based "
     "fallback was.",
+]
+
+
+# --- the spec section (Part I) -------------------------------------------------------------------------------
+
+EXTRACT_PY = r"""python3 - chatop-bootstrap-plays.html spec <<'EOF'
+import pathlib, re, sys
+text = pathlib.Path(sys.argv[1]).read_text()
+for path, body in re.findall(r'<script type="text/markdown" data-path="([^"]+)">\n(.*?)\n</script>', text, re.S):
+    out = pathlib.Path(sys.argv[2], path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(body.replace("<\\/", "</") + "\n")
+    print("wrote", out)
+EOF"""
+
+AGENT_PROMPTS: list[dict[str, str]] = [
+    {
+        "id": "implement",
+        "title": "Implement from the spec (new repository)",
+        "when": "You want a coding agent (or a chat) to build the product from the documents.",
+        "text": """You are implementing the product described in the attached spec bundle (docs/SPEC-BUNDLE.md, or the files under docs/).
+
+Read in this order: PRD.md (what and why; ids FR-n, NFR-n, UC-n), DESIGN.md (modules, traceability, extension), ARCHITECTURE.md
+(layers and the import rule), BEHAVIOR.md (the externally visible contract: CLI, envelope, apply rules, status --json),
+DECISIONS.md (why), UX.md (the relay model).
+
+Rules
+1. The requirement ids are the scope. Create a checklist of every FR and NFR with Must priority first.
+2. Follow the layer rules exactly: domain is pure, adapters implement ports, shells call only the Session facade.
+3. Test first. Name tests after the requirement ids they verify (for example test_fr22_batch_validation).
+4. Put the id in each commit message (for example "FR-22: validate all generated files in one pass").
+5. Where PRD, DESIGN and BEHAVIOR disagree, BEHAVIOR wins for observable behavior; list the conflict in docs/SPEC-NOTES.md.
+6. Do not add features that are not a requirement. Record anything unclear as a question in docs/SPEC-NOTES.md and choose the
+   simplest reading.
+7. Finish with a conformance table: every FR/NFR, the module that implements it, the test that proves it, and its status.""",
+    },
+    {
+        "id": "incorporate",
+        "title": "Incorporate into an existing product",
+        "when": "You have a codebase and want this workflow, or one layer of it, inside it.",
+        "text": """You are integrating part of the product described in the attached spec bundle into an existing codebase.
+
+Step 1. Read PRD.md sections 3 to 7 and DESIGN.md sections 3, 4 and 7. Do not write code yet.
+Step 2. Inspect the existing codebase (use its own search tools; do not guess). Produce docs/INTEGRATION-PLAN.md containing:
+  a. Which adoption level (A protocol, B kernel, C library, D whole app) fits, and why, in five lines.
+  b. The requirement ids in scope and the ids explicitly out of scope.
+  c. For each in-scope module in DESIGN.md section 3: the existing code it replaces, wraps or sits beside.
+  d. The seams: which of the four ports map to existing abstractions, and which need a new adapter.
+  e. The integration contract items from DESIGN.md section 7 that the existing product must preserve or adopt.
+  f. A sequence of small, independently shippable steps, each with its tests and its rollback.
+  g. Risks and open questions.
+Step 3. Stop and wait for approval of the plan before any implementation.
+Step 4. Implement one step at a time, tests first, ids in commit messages. Keep domain code free of I/O and keep the existing
+product's behavior unchanged unless a step says otherwise.""",
+    },
+    {
+        "id": "review",
+        "title": "Audit an implementation against the PRD",
+        "when": "A rebuild or integration exists and you want evidence of conformance, not a claim.",
+        "text": """Audit the implementation in this repository against the spec bundle (PRD.md, DESIGN.md, BEHAVIOR.md).
+
+For every FR and NFR in PRD.md produce one row: id | status (met, partial, missing, not applicable) | evidence (file and symbol,
+and the test that proves it) | gap and smallest fix. Use the code search tool of the repository; cite paths and symbols, not memory.
+
+Then list: (1) behavior in the code that no requirement asks for, (2) layer-rule violations against ARCHITECTURE.md, (3) places
+where BEHAVIOR.md and the code differ in observable behavior. Do not change code. Output a markdown table and a prioritized fix list.""",
+    },
+]
+
+SPEC_DOCS: list[tuple[str, str, str]] = [
+    ("PRD", "docs/PRD.md", "Product requirements: personas, use cases, FR/NFR ids, scope, risks. Start here."),
+    (
+        "Design",
+        "docs/DESIGN.md",
+        "Modules, traceability from every requirement to module and test, extension, integration levels.",
+    ),
+    (
+        "Architecture",
+        "docs/ARCHITECTURE.md",
+        "Layers and import rule, boundary surfaces, flows, state machine, data layout.",
+    ),
+    (
+        "Behavior",
+        "docs/BEHAVIOR.md",
+        "The externally visible contract: CLI, envelope, apply rules, status --json. The conformance target.",
+    ),
+    ("Decisions", "docs/DECISIONS.md", "ADRs: context, decision, alternatives, consequences."),
+    ("UX", "docs/UX.md", "The relay model: every chat is in one stage; screens; UX laws applied."),
 ]

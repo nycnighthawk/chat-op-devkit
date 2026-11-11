@@ -55,6 +55,24 @@ const file = process.argv[2];
   assert(names.includes("bootstrap/relay.py") && names.includes("pyproject.toml"));
   fs.writeFileSync(out + ".names", JSON.stringify(names));
 
+  // Part I: the spec renders, every tab has content, the bundle and prompts match the repo files byte for byte
+  const root = path.resolve(path.dirname(file), "..");
+  for (const name of ["PRD", "Design", "Architecture", "Behavior", "Decisions", "UX"]) {
+    await pg.click("#tab-" + name);
+    const info = await pg.evaluate(() => ({ h2: document.querySelectorAll("#specpanel h2").length, bad: document.querySelector("#specpanel").innerText.includes("[object") }));
+    assert(info.h2 > 3 && !info.bad, name + " did not render");
+  }
+  await pg.click("#tab-PRD");
+  assert((await pg.locator("#specpanel tr[id^=req-FR-]").count()) >= 40);
+  const bundle = await pg.evaluate(() => window.__plays.bundleText());
+  assert.equal(bundle, fs.readFileSync(path.join(root, "docs", "SPEC-BUNDLE.md"), "utf8"));
+  assert.equal(await pg.evaluate(() => window.__plays.agentMd()), fs.readFileSync(path.join(root, "docs", "AGENT-PROMPTS.md"), "utf8"));
+  const [sz] = await Promise.all([pg.waitForEvent("download"), pg.getByRole("button", { name: "Download spec (.zip)" }).click()]);
+  const specZip = path.join(os.tmpdir(), "plays-spec-" + process.pid + ".zip");
+  await sz.saveAs(specZip);
+  assert.equal(sz.suggestedFilename(), "chatop-spec.zip");
+  fs.writeFileSync(path.join(os.tmpdir(), "plays-spec-path.txt"), specZip);
+
   assert.deepEqual(errs, []);
   await browser.close();
   console.log("plays browser test ok; zip at " + out);
